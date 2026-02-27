@@ -1,0 +1,12 @@
+# macOS native UI
+pyobjc-core>=9.0
+pyobjc-framework-Cocoa>=9.0
+
+# Audio playback
+pygame>=2.5
+
+# HTTP (LRCLIB API)
+requests>=2.31
+
+# MP3 metadata
+mutagen>=1.47
