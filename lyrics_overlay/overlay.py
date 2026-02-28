@@ -113,9 +113,13 @@ class _LyricsView(NSView):
     # ------------------------------------------------------------------ #
 
     def set_lyrics(self, prev: str = "", current: str = "", next_line: str = "") -> None:
-        self._prev_lbl.setStringValue_(prev)
-        self._curr_lbl.setStringValue_(current)
-        self._next_lbl.setStringValue_(next_line)
+        # Only update labels that actually changed to avoid unnecessary redraws
+        if prev != self._prev_lbl.stringValue():
+            self._prev_lbl.setStringValue_(prev)
+        if current != self._curr_lbl.stringValue():
+            self._curr_lbl.setStringValue_(current)
+        if next_line != self._next_lbl.stringValue():
+            self._next_lbl.setStringValue_(next_line)
 
     def set_bg_alpha(self, alpha: float) -> None:
         self._bg_alpha = max(0.1, min(1.0, alpha))

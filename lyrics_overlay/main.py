@@ -104,14 +104,14 @@ class AppDelegate(NSObject):
         self._setup_status_bar()
         NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
 
-        # 100 ms lyric sync timer
+        # 250 ms lyric sync timer (lyrics change ~1/s, 4fps is more than enough)
         self._sync_timer = NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
-            0.1, self, "syncTick:", None, True
+            0.25, self, "syncTick:", None, True
         )
 
-        # 1.5 s YouTube Music poll timer
+        # 2 s YouTube Music poll timer
         self._yt_timer = NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
-            1.5, self, "ytTick:", None, True
+            2.0, self, "ytTick:", None, True
         )
 
         self._player.on_track_end = self._on_track_end
@@ -132,7 +132,10 @@ class AppDelegate(NSObject):
             except queue.Empty:
                 break
 
+        # Skip if nothing is actively playing
         if not self._sync.has_lyrics:
+            return
+        if not (self._player.is_playing or self._player.is_paused or self._yt_info):
             return
 
         pos = self._current_position()
