@@ -27,6 +27,14 @@ import objc
 from AppKit import (
     NSApplication,
     NSApplicationActivationPolicyAccessory,
+    NSApplicationActivationPolicyRegular,
+    NSAttributedString,
+    NSBezierPath,
+    NSColor,
+    NSFont,
+    NSFontAttributeName,
+    NSForegroundColorAttributeName,
+    NSImage,
     NSMenu,
     NSMenuItem,
     NSObject,
@@ -36,6 +44,7 @@ from AppKit import (
     NSTimer,
     NSVariableStatusItemLength,
 )
+from Foundation import NSMakePoint, NSMakeRect, NSMakeSize, NSProcessInfo
 
 from .control_panel import ControlPanel
 from .lrc_parser import load_lrc_file
@@ -56,7 +65,7 @@ class AppDelegate(NSObject):
         self._player = MusicPlayer()
         self._sync = SyncEngine()
         self._overlay = LyricsOverlay()
-        self._control = ControlPanel(on_action=self._handle_action)
+        self._control = ControlPanel()
 
         # YouTube Music state
         self._yt_info: dict | None = None
@@ -80,8 +89,11 @@ class AppDelegate(NSObject):
         sw = screen.frame().size.width
         sh = screen.frame().size.height
 
+        self._setup_main_menu()
+
         self._overlay.create(sw, sh)
-        self._control.create(sw, sh)
+        self._control.create(sw, sh, self)  # pass self as action target
+        self._set_app_icon()
 
         self._overlay.update(
             prev="",
@@ -89,8 +101,8 @@ class AppDelegate(NSObject):
             next_line="Open an MP3 or play a song in YouTube Music",
         )
 
-        # Status-bar icon so the app is accessible without a Dock icon
         self._setup_status_bar()
+        NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
 
         # 100 ms lyric sync timer
         self._sync_timer = NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
@@ -185,22 +197,25 @@ class AppDelegate(NSObject):
         return 0.0
 
     # ------------------------------------------------------------------ #
-    # Control panel actions                                                #
+    # Control panel ObjC actions (called directly by buttons / slider)    #
     # ------------------------------------------------------------------ #
 
-    def _handle_action(self, action: str, *args):
-        if action == "open_file":
-            self._open_file()
-        elif action == "play_pause":
-            self._toggle_play()
-        elif action == "stop":
-            self._player.stop()
-            self._control.set_play_title("Play")
-            self._control.update_status("Stopped")
-        elif action == "toggle_overlay":
-            self._overlay.set_visible(not self._overlay.is_visible())
-        elif action == "opacity":
-            self._overlay.set_opacity(args[0])
+    def openFileAction_(self, _sender):
+        self._open_file()
+
+    def playPauseAction_(self, _sender):
+        self._toggle_play()
+
+    def stopAction_(self, _sender):
+        self._player.stop()
+        self._control.set_play_title("Play")
+        self._control.update_status("Stopped")
+
+    def toggleOverlayAction_(self, _sender):
+        self._overlay.set_visible(not self._overlay.is_visible())
+
+    def opacityAction_(self, sender):
+        self._overlay.set_opacity(sender.floatValue())
 
     def _open_file(self):
         panel = NSOpenPanel.openPanel()
@@ -276,6 +291,81 @@ class AppDelegate(NSObject):
     # Status bar                                                           #
     # ------------------------------------------------------------------ #
 
+    def _set_app_icon(self) -> None:
+        """Draw a ♪ icon with proper macOS-style padding."""
+        size = 512.0
+        pad  = size * 0.10          # ~10% margin — matches other Dock icons
+        inner = size - pad * 2
+        r    = inner * 0.22         # rounded corner radius
+
+        img = NSImage.alloc().initWithSize_(NSMakeSize(size, size))
+        img.lockFocus()
+
+        # Dark navy rounded-rect with padding
+        NSColor.colorWithCalibratedRed_green_blue_alpha_(0.08, 0.08, 0.18, 1.0).setFill()
+        NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
+            NSMakeRect(pad, pad, inner, inner), r, r
+        ).fill()
+
+        # White ♪ centred inside the rect
+        attrs = {
+            NSFontAttributeName: NSFont.systemFontOfSize_(260),
+            NSForegroundColorAttributeName: NSColor.whiteColor(),
+        }
+        note = NSAttributedString.alloc().initWithString_attributes_("♪", attrs)
+        note_sz = note.size()
+        note.drawAtPoint_(NSMakePoint(
+            (size - note_sz.width)  / 2 + 8,
+            (size - note_sz.height) / 2,
+        ))
+
+        img.unlockFocus()
+        NSApplication.sharedApplication().setApplicationIconImage_(img)
+
+    def _setup_main_menu(self):
+        """Build the macOS top-left application menu bar."""
+        app = NSApplication.sharedApplication()
+        menubar = NSMenu.alloc().initWithTitle_("MainMenu")
+
+        # ── Lyrics Overlay app menu ──────────────────────────────────────
+        app_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+            "Lyrics Overlay", None, ""
+        )
+        menubar.addItem_(app_item)
+
+        app_menu = NSMenu.alloc().initWithTitle_("Lyrics Overlay")
+
+        controls = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+            "Show Controls", "showControls:", ","
+        )
+        controls.setTarget_(self)
+        app_menu.addItem_(controls)
+
+        toggle = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+            "Toggle Overlay", "toggleOverlayMenu:", "/"
+        )
+        toggle.setTarget_(self)
+        app_menu.addItem_(toggle)
+
+        app_menu.addItem_(NSMenuItem.separatorItem())
+
+        hide = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+            "Hide Lyrics Overlay", "hide:", "h"
+        )
+        hide.setTarget_(app)
+        app_menu.addItem_(hide)
+
+        app_menu.addItem_(NSMenuItem.separatorItem())
+
+        quit_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+            "Quit Lyrics Overlay", "terminate:", "q"
+        )
+        quit_item.setTarget_(app)
+        app_menu.addItem_(quit_item)
+
+        app_item.setSubmenu_(app_menu)
+        app.setMainMenu_(menubar)
+
     def _setup_status_bar(self):
         sb = NSStatusBar.systemStatusBar()
         self._status_item = sb.statusItemWithLength_(NSVariableStatusItemLength)
@@ -307,6 +397,7 @@ class AppDelegate(NSObject):
 
     def showControls_(self, _):
         if self._control._window:
+            NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
             self._control._window.makeKeyAndOrderFront_(None)
 
     def toggleOverlayMenu_(self, _):
@@ -325,9 +416,15 @@ class AppDelegate(NSObject):
 # ────────────────────────────────────────────────────────────────────────
 
 def main():
+    # Set app name in menu bar, Dock, and Activity Monitor
+    from Foundation import NSBundle
+    _info = NSBundle.mainBundle().infoDictionary()
+    _info["CFBundleName"] = "Lyrics Overlay"
+    _info["CFBundleDisplayName"] = "Lyrics Overlay"
+    NSProcessInfo.processInfo().setProcessName_("Lyrics Overlay")
+
     app = NSApplication.sharedApplication()
-    # Accessory policy = no Dock icon; app lives in the menu bar only
-    app.setActivationPolicy_(NSApplicationActivationPolicyAccessory)
+    app.setActivationPolicy_(NSApplicationActivationPolicyRegular)
 
     delegate = AppDelegate.alloc().init()
     app.setDelegate_(delegate)

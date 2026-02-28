@@ -1,9 +1,12 @@
 """
 Control panel window — file picker, transport controls, status labels.
+
+Buttons and slider use the AppDelegate (passed as `action_target`) directly
+as their ObjC target, eliminating intermediate delegate objects.
 """
 
-import objc
 from AppKit import (
+    NSApplication,
     NSBackingStoreBuffered,
     NSBezelStyleRounded,
     NSButton,
@@ -18,31 +21,11 @@ from AppKit import (
     NSWindowStyleMaskMiniaturizable,
     NSWindowStyleMaskTitled,
 )
-from Foundation import NSObject
-
-
-class _Delegate(NSObject):
-    def initWithCallback_(self, cb):
-        self = objc.super(_Delegate, self).init()
-        if self is None:
-            return None
-        self._cb = cb
-        return self
-
-    def openFile_(self, _):      self._cb("open_file")
-    def playPause_(self, _):     self._cb("play_pause")
-    def stop_(self, _):          self._cb("stop")
-    def toggleOverlay_(self, _): self._cb("toggle_overlay")
-    def opacityChanged_(self, s): self._cb("opacity", s.floatValue())
 
 
 class ControlPanel:
-    def __init__(self, on_action) -> None:
-        self._on_action = on_action
+    def __init__(self) -> None:
         self._window: NSWindow | None = None
-        self._delegate: _Delegate | None = None
-
-        # labels we need to update later
         self._track_lbl: NSTextField | None = None
         self._status_lbl: NSTextField | None = None
         self._yt_lbl: NSTextField | None = None
@@ -53,8 +36,15 @@ class ControlPanel:
     # Build                                                                #
     # ------------------------------------------------------------------ #
 
-    def create(self, screen_w: float, screen_h: float) -> None:
-        style = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable
+    def create(self, screen_w: float, screen_h: float, action_target) -> None:
+        """
+        action_target: the NSObject whose action methods are called by buttons.
+        Expected selectors: openFileAction: playPauseAction: stopAction:
+                            toggleOverlayAction: opacityAction:
+        """
+        style = (NSWindowStyleMaskTitled
+                 | NSWindowStyleMaskClosable
+                 | NSWindowStyleMaskMiniaturizable)
         self._window = NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
             ((screen_w / 2 - 190, screen_h / 2 - 120), (380, 240)),
             style,
@@ -64,27 +54,27 @@ class ControlPanel:
         self._window.setTitle_("Lyrics Overlay")
         self._window.setReleasedWhenClosed_(False)
 
-        self._delegate = _Delegate.alloc().initWithCallback_(self._on_action)
         cv = self._window.contentView()
 
         # ── track / status ────────────────────────────────────────────
-        self._track_lbl = self._label(cv, "No track loaded",  (10, 210, 360, 18), 12, bold=True)
+        self._track_lbl  = self._label(cv, "No track loaded", (10, 210, 360, 18), 12, bold=True)
         self._status_lbl = self._label(cv, "Ready",           (10, 192, 360, 16), 10, alpha=0.6)
 
         # ── transport buttons ─────────────────────────────────────────
-        self._btn(cv, "Open MP3…",      (10,  158, 110, 28), "openFile_")
-        self._play_btn = self._btn(cv, "Play", (130, 158,  60, 28), "playPause_")
-        self._btn(cv, "Stop",           (200, 158,  60, 28), "stop_")
-        self._btn(cv, "Toggle Overlay", (270, 158, 100, 28), "toggleOverlay_")
+        self._btn(cv, "Open MP3…",      (10,  158, 110, 28), action_target, "openFileAction:")
+        self._play_btn = \
+            self._btn(cv, "Play",       (130, 158,  60, 28), action_target, "playPauseAction:")
+        self._btn(cv, "Stop",           (200, 158,  60, 28), action_target, "stopAction:")
+        self._btn(cv, "Toggle Overlay", (270, 158, 100, 28), action_target, "toggleOverlayAction:")
 
         # ── opacity slider ────────────────────────────────────────────
         self._label(cv, "Overlay opacity:", (10, 128, 120, 18), 10)
-        sl = NSSlider.alloc().initWithFrame_(NSMakeRect(135, 131, 235, 16))
+        sl = NSSlider.alloc().initWithFrame_(NSMakeRect(135, 124, 235, 26))
         sl.setMinValue_(0.15)
         sl.setMaxValue_(1.0)
         sl.setFloatValue_(0.78)
-        sl.setTarget_(self._delegate)
-        sl.setAction_("opacityChanged_")
+        sl.setTarget_(action_target)
+        sl.setAction_("opacityAction:")
         cv.addSubview_(sl)
 
         # ── YouTube Music ─────────────────────────────────────────────
@@ -104,6 +94,7 @@ class ControlPanel:
             alpha=0.45,
         )
 
+        NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
         self._window.makeKeyAndOrderFront_(None)
 
     # ------------------------------------------------------------------ #
@@ -124,24 +115,23 @@ class ControlPanel:
         parent.addSubview_(lbl)
         return lbl
 
-    def _btn(self, parent, title, frame, action) -> NSButton:
+    @staticmethod
+    def _btn(parent, title, frame, target, action) -> NSButton:
         btn = NSButton.alloc().initWithFrame_(NSMakeRect(*frame))
         btn.setTitle_(title)
         btn.setBezelStyle_(NSBezelStyleRounded)
-        btn.setTarget_(self._delegate)
+        btn.setTarget_(target)
         btn.setAction_(action)
         parent.addSubview_(btn)
         return btn
 
     # ------------------------------------------------------------------ #
-    # Update API (call from main thread only)                              #
+    # Update API (main thread only)                                        #
     # ------------------------------------------------------------------ #
 
     def update_track(self, title: str, artist: str = "") -> None:
         if self._track_lbl:
-            self._track_lbl.setStringValue_(
-                f"{title}  —  {artist}" if artist else title
-            )
+            self._track_lbl.setStringValue_(f"{title}  —  {artist}" if artist else title)
 
     def update_status(self, text: str) -> None:
         if self._status_lbl:
