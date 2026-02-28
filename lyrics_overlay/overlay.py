@@ -31,7 +31,7 @@ from AppKit import (
 _NONACTIVATING = 1 << 7
 
 WINDOW_W = 720
-WINDOW_H = 130
+WINDOW_H = 160
 CORNER_R = 14
 
 
@@ -53,24 +53,24 @@ class _LyricsView(NSView):
         h = b.size.height
 
         # ── labels ─────────────────────────────────────────────────────
-        self._prev_lbl = self._make_field(13, 0.50)
-        self._curr_lbl = self._make_field(21, 1.00, bold=True)
-        self._next_lbl = self._make_field(13, 0.50)
+        self._prev_lbl = self._make_field(13, 0.50, wrap=False)
+        self._curr_lbl = self._make_field(20, 1.00, bold=True, wrap=True)
+        self._next_lbl = self._make_field(13, 0.50, wrap=False)
 
         for lbl in (self._prev_lbl, self._curr_lbl, self._next_lbl):
             self.addSubview_(lbl)
 
         pad = 24
-        self._prev_lbl.setFrame_(NSMakeRect(pad, h * 0.72, w - pad * 2, 22))
-        self._curr_lbl.setFrame_(NSMakeRect(pad, h * 0.34, w - pad * 2, 42))
-        self._next_lbl.setFrame_(NSMakeRect(pad, h * 0.08, w - pad * 2, 22))
+        self._prev_lbl.setFrame_(NSMakeRect(pad, h * 0.78, w - pad * 2, 22))
+        self._curr_lbl.setFrame_(NSMakeRect(pad, h * 0.30, w - pad * 2, 68))
+        self._next_lbl.setFrame_(NSMakeRect(pad, h * 0.06, w - pad * 2, 22))
 
         return self
 
     # ------------------------------------------------------------------ #
 
     @staticmethod
-    def _make_field(size: int, alpha: float, bold: bool = False) -> NSTextField:
+    def _make_field(size: int, alpha: float, bold: bool = False, wrap: bool = False) -> NSTextField:
         lbl = NSTextField.alloc().initWithFrame_(NSMakeRect(0, 0, 10, 10))
         lbl.setBezeled_(False)
         lbl.setDrawsBackground_(False)
@@ -82,8 +82,13 @@ class _LyricsView(NSView):
         )
         font = NSFont.boldSystemFontOfSize_(size) if bold else NSFont.systemFontOfSize_(size)
         lbl.setFont_(font)
-        lbl.cell().setWraps_(False)
-        lbl.cell().setScrollable_(True)
+        if wrap:
+            lbl.setMaximumNumberOfLines_(2)
+            lbl.cell().setWraps_(True)
+            lbl.cell().setScrollable_(False)
+        else:
+            lbl.cell().setWraps_(False)
+            lbl.cell().setScrollable_(True)
         return lbl
 
     # ------------------------------------------------------------------ #
