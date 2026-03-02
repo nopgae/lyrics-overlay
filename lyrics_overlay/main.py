@@ -95,7 +95,6 @@ class AppDelegate(NSObject):
         self._set_app_icon()
 
         self._overlay.update(
-            prev="",
             current="♪  Lyrics Overlay",
             next_line="Open an MP3 or play a song in YouTube Music",
         )
@@ -138,9 +137,8 @@ class AppDelegate(NSObject):
             return
 
         pos = self._current_position()
-        prevs, current, nexts = self._sync.get_context(pos, before=1, after=1)
+        _, current, nexts = self._sync.get_context(pos, before=0, after=1)
         self._overlay.update(
-            prev=prevs[0] if prevs else "",
             current=current,
             next_line=nexts[0] if nexts else "",
         )

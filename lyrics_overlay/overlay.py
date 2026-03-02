@@ -3,7 +3,6 @@ LyricsOverlay — always-on-top, semi-transparent NSPanel overlay.
 
 Layout (bottom → top in screen coords):
   ┌─────────────────────────────────────────┐
-  │  [prev line — dim, small]               │
   │  [CURRENT LINE — bright, large, bold]   │
   │  [next line — dim, small]               │
   └─────────────────────────────────────────┘
@@ -37,8 +36,8 @@ CORNER_R = 14
 
 class _LyricsView(NSView):
     """
-    Custom NSView that draws a rounded-rect background and hosts three
-    NSTextField labels for previous / current / next lyric lines.
+    Custom NSView that draws a rounded-rect background and hosts two
+    NSTextField labels for current / next lyric lines.
     """
 
     def initWithFrame_(self, frame):
@@ -47,23 +46,23 @@ class _LyricsView(NSView):
             return None
 
         self._bg_alpha: float = 0.78
-        # Use self.bounds() — frame may arrive as a plain Python tuple
         b = self.bounds()
         w = b.size.width
         h = b.size.height
 
         # ── labels ─────────────────────────────────────────────────────
-        self._prev_lbl = self._make_field(13, 0.50, wrap=False)
         self._curr_lbl = self._make_field(20, 1.00, bold=True, wrap=True)
         self._next_lbl = self._make_field(13, 0.50, wrap=False)
 
-        for lbl in (self._prev_lbl, self._curr_lbl, self._next_lbl):
-            self.addSubview_(lbl)
+        self.addSubview_(self._curr_lbl)
+        self.addSubview_(self._next_lbl)
 
+        # Centre the curr+next pair vertically:
+        # curr=68, gap=8, next=22 → total=98 → margin=(h-98)/2
         pad = 24
-        self._prev_lbl.setFrame_(NSMakeRect(pad, h * 0.78, w - pad * 2, 22))
-        self._curr_lbl.setFrame_(NSMakeRect(pad, h * 0.30, w - pad * 2, 68))
-        self._next_lbl.setFrame_(NSMakeRect(pad, h * 0.06, w - pad * 2, 22))
+        margin = (h - 98) / 2
+        self._next_lbl.setFrame_(NSMakeRect(pad, margin,      w - pad * 2, 22))
+        self._curr_lbl.setFrame_(NSMakeRect(pad, margin + 30, w - pad * 2, 68))
 
         return self
 
@@ -114,10 +113,8 @@ class _LyricsView(NSView):
     # Public                                                               #
     # ------------------------------------------------------------------ #
 
-    def set_lyrics(self, prev: str = "", current: str = "", next_line: str = "") -> None:
+    def set_lyrics(self, current: str = "", next_line: str = "") -> None:
         # Only update labels that actually changed to avoid unnecessary redraws
-        if prev != self._prev_lbl.stringValue():
-            self._prev_lbl.setStringValue_(prev)
         if current != self._curr_lbl.stringValue():
             self._curr_lbl.setStringValue_(current)
         if next_line != self._next_lbl.stringValue():
@@ -170,9 +167,9 @@ class LyricsOverlay:
 
         panel.orderFront_(None)
 
-    def update(self, prev: str = "", current: str = "", next_line: str = "") -> None:
+    def update(self, current: str = "", next_line: str = "") -> None:
         if self._view:
-            self._view.set_lyrics(prev, current, next_line)
+            self._view.set_lyrics(current, next_line)
 
     def set_visible(self, visible: bool) -> None:
         if not self._window:
