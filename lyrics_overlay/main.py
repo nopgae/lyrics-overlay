@@ -180,7 +180,7 @@ class AppDelegate(NSObject):
     def _apply_music_info(self, info: dict):
         """Called on main thread via _ui_q."""
         self._music_info = info
-        self._music_last_poll_wall = time.time()
+        self._music_last_poll_wall = info.get("_fetched_at", time.time())
         self._music_last_poll_pos = info["current_time"]
 
         title = info.get("title", "")
@@ -205,7 +205,7 @@ class AppDelegate(NSObject):
             return
 
         self._yt_info = info
-        self._yt_last_poll_wall = time.time()
+        self._yt_last_poll_wall = info.get("_fetched_at", time.time())
         self._yt_last_poll_pos = info["current_time"]
 
         title = info.get("title", "")

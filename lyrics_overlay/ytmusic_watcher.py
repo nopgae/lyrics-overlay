@@ -14,6 +14,7 @@ Requirements:
 
 import json
 import subprocess
+import time
 from typing import Optional
 
 CHROMIUM_BROWSERS = [
@@ -44,6 +45,7 @@ def _osascript(script: str) -> str:
 
 
 def _parse(raw: str) -> Optional[dict]:
+    fetched_at = time.time()   # captured right after osascript returns
     if not raw:
         return None
     try:
@@ -56,6 +58,7 @@ def _parse(raw: str) -> Optional[dict]:
             "current_time": float(data["currentTime"]),
             "duration":     float(data["duration"]),
             "source":       "youtube_music",
+            "_fetched_at":  fetched_at,
         }
     except Exception:
         return None

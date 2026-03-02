@@ -1,6 +1,7 @@
 """macOS Music.app watcher via AppleScript."""
 
 import subprocess
+import time
 from typing import Optional
 
 _SCRIPT = """
@@ -23,6 +24,7 @@ def get_music_info() -> Optional[dict]:
             ["osascript", "-e", _SCRIPT],
             capture_output=True, text=True, timeout=5,
         )
+        fetched_at = time.time()   # captured right after AppleScript returns
         raw = r.stdout.strip()
         if not raw:
             return None
@@ -35,6 +37,7 @@ def get_music_info() -> Optional[dict]:
             "current_time": float(parts[2]),
             "duration":     float(parts[3]),
             "source":       "music_app",
+            "_fetched_at":  fetched_at,
         }
     except Exception:
         return None
