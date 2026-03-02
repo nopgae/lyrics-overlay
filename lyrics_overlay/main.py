@@ -403,6 +403,11 @@ class AppDelegate(NSObject):
         if self._control._window:
             NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
             self._control._window.makeKeyAndOrderFront_(None)
+            self._overlay.set_movable(True)
+
+    def windowWillClose_(self, notif):
+        if notif.object() == self._control._window:
+            self._overlay.set_movable(False)
 
     def toggleOverlayMenu_(self, _):
         self._overlay.set_visible(not self._overlay.is_visible())

@@ -95,6 +95,8 @@ class _LyricsView(NSView):
     # Drawing                                                              #
     # ------------------------------------------------------------------ #
 
+    _movable: bool = True   # toggled by LyricsOverlay.set_movable()
+
     def isOpaque(self) -> bool:
         return False
 
@@ -122,12 +124,11 @@ class _LyricsView(NSView):
             self._next_lbl.setStringValue_(next_line)
 
     def set_bg_alpha(self, alpha: float) -> None:
-        self._bg_alpha = max(0.1, min(1.0, alpha))
+        self._bg_alpha = max(0.0, min(1.0, alpha))
         self.setNeedsDisplay_(True)
 
-    # Allow the window to be dragged via background
     def mouseDownCanMoveWindow(self) -> bool:
-        return True
+        return self._movable
 
 
 class LyricsOverlay:
@@ -187,3 +188,9 @@ class LyricsOverlay:
     def set_opacity(self, alpha: float) -> None:
         if self._view:
             self._view.set_bg_alpha(alpha)
+
+    def set_movable(self, movable: bool) -> None:
+        if self._view:
+            self._view._movable = movable
+        if self._window:
+            self._window.setMovableByWindowBackground_(movable)

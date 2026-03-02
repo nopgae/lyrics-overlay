@@ -53,6 +53,7 @@ class ControlPanel:
         )
         self._window.setTitle_("Lyrics Overlay")
         self._window.setReleasedWhenClosed_(False)
+        self._window.setDelegate_(action_target)
 
         cv = self._window.contentView()
 
@@ -70,7 +71,7 @@ class ControlPanel:
         # ── opacity slider ────────────────────────────────────────────
         self._label(cv, "Overlay opacity:", (10, 128, 120, 18), 10)
         sl = NSSlider.alloc().initWithFrame_(NSMakeRect(135, 124, 235, 26))
-        sl.setMinValue_(0.15)
+        sl.setMinValue_(0.0)
         sl.setMaxValue_(1.0)
         sl.setFloatValue_(0.78)
         sl.setTarget_(action_target)
