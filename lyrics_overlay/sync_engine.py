@@ -1,4 +1,5 @@
-from typing import List, Optional, Tuple
+import bisect
+from typing import List, Tuple
 
 from .lrc_parser import LyricLine
 
@@ -6,12 +7,15 @@ from .lrc_parser import LyricLine
 class SyncEngine:
     def __init__(self) -> None:
         self._lyrics: List[LyricLine] = []
+        self._times: List[float] = []   # parallel sorted times for bisect
 
     def set_lyrics(self, lyrics: List[LyricLine]) -> None:
         self._lyrics = sorted(lyrics, key=lambda x: x.time)
+        self._times = [l.time for l in self._lyrics]
 
     def clear(self) -> None:
         self._lyrics = []
+        self._times = []
 
     @property
     def has_lyrics(self) -> bool:
@@ -19,29 +23,19 @@ class SyncEngine:
 
     def _index_at(self, position: float) -> int:
         """Return index of the last line whose timestamp <= position, or -1."""
-        idx = -1
-        for i, line in enumerate(self._lyrics):
-            if line.time <= position:
-                idx = i
-            else:
-                break
-        return idx
+        return bisect.bisect_right(self._times, position) - 1
 
     def get_context(
         self, position: float, before: int = 1, after: int = 1
     ) -> Tuple[List[str], str, List[str]]:
-        """
-        Return (prev_lines, current_text, next_lines) strings for the
-        given playback position.
-        """
+        """Return (prev_lines, current_text, next_lines) for the given position."""
         if not self._lyrics:
             return [], "", []
 
         idx = self._index_at(position)
 
         if idx == -1:
-            nexts = [l.text for l in self._lyrics[:after]]
-            return [], "", nexts
+            return [], "", [l.text for l in self._lyrics[:after]]
 
         current = self._lyrics[idx].text
         prevs = [self._lyrics[i].text for i in range(max(0, idx - before), idx)]

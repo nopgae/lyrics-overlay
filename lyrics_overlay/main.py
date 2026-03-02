@@ -26,7 +26,6 @@ from pathlib import Path
 import objc
 from AppKit import (
     NSApplication,
-    NSApplicationActivationPolicyAccessory,
     NSApplicationActivationPolicyRegular,
     NSAttributedString,
     NSBezierPath,
@@ -287,8 +286,10 @@ class AppDelegate(NSObject):
             self._control.update_status(f"Playing: {title}")
 
     def _on_track_end(self):
-        self._ui_q.put(lambda: self._control.set_play_title("Play"))
-        self._ui_q.put(lambda: self._control.update_status("Finished"))
+        def _ui():
+            self._control.set_play_title("Play")
+            self._control.update_status("Finished")
+        self._ui_q.put(_ui)
 
     # ------------------------------------------------------------------ #
     # Status bar                                                           #

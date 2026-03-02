@@ -16,7 +16,6 @@ import json
 import subprocess
 from typing import Optional
 
-# (app name, applescript verb to run JS)
 CHROMIUM_BROWSERS = [
     "Google Chrome",
     "Brave Browser",
@@ -26,7 +25,11 @@ CHROMIUM_BROWSERS = [
 
 YT_MUSIC_HOST = "music.youtube.com"
 
-_JS = """(function(){var v=document.querySelector('video');if(!v)return '';var tEl=document.querySelector('.title.ytmusic-player-bar')||document.querySelector('yt-formatted-string.title');var aEl=document.querySelector('.byline.ytmusic-player-bar a')||document.querySelector('.subtitle a');return JSON.stringify({title:tEl?tEl.textContent.trim():'',artist:aEl?aEl.textContent.trim():'',currentTime:v.currentTime,duration:v.duration||0,paused:v.paused});})()"""
+_JS_RAW = """(function(){var v=document.querySelector('video');if(!v)return '';var tEl=document.querySelector('.title.ytmusic-player-bar')||document.querySelector('yt-formatted-string.title');var aEl=document.querySelector('.byline.ytmusic-player-bar a')||document.querySelector('.subtitle a');return JSON.stringify({title:tEl?tEl.textContent.trim():'',artist:aEl?aEl.textContent.trim():'',currentTime:v.currentTime,duration:v.duration||0,paused:v.paused});})()"""
+_JS = _JS_RAW.replace('"', '\\"')   # escaped once at import time
+
+# Module-level cache: remember which browser last had YT Music playing
+_last_browser: Optional[str] = None
 
 
 def _osascript(script: str) -> str:
@@ -59,7 +62,6 @@ def _parse(raw: str) -> Optional[dict]:
 
 
 def _query_chromium(app: str) -> Optional[dict]:
-    js = _JS.replace('"', '\\"')
     script = f"""
 tell application "System Events"
     if not (exists process "{app}") then return ""
@@ -69,7 +71,7 @@ tell application "{app}"
         repeat with w in windows
             repeat with t in tabs of w
                 if URL of t contains "{YT_MUSIC_HOST}" then
-                    set info to execute javascript "{js}" in t
+                    set info to execute javascript "{_JS}" in t
                     if info is not "" then return info
                 end if
             end repeat
@@ -82,7 +84,6 @@ return ""
 
 
 def _query_safari() -> Optional[dict]:
-    js = _JS.replace('"', '\\"')
     script = f"""
 tell application "System Events"
     if not (exists process "Safari") then return ""
@@ -92,7 +93,7 @@ tell application "Safari"
         repeat with w in windows
             repeat with t in tabs of w
                 if URL of t contains "{YT_MUSIC_HOST}" then
-                    set info to do JavaScript "{js}" in t
+                    set info to do JavaScript "{_JS}" in t
                     if info is not "" then return info
                 end if
             end repeat
@@ -110,12 +111,28 @@ def get_ytmusic_info() -> Optional[dict]:
 
     Keys: title, artist, current_time (seconds), duration (seconds), source
     """
-    # Try Safari first if it's likely in use, then Chromium browsers
+    global _last_browser
+
+    # Fast path: try the browser that worked last time first
+    if _last_browser:
+        result = (
+            _query_safari() if _last_browser == "Safari"
+            else _query_chromium(_last_browser)
+        )
+        if result:
+            return result
+        _last_browser = None   # it stopped; fall through to full scan
+
+    # Full scan
     result = _query_safari()
     if result:
+        _last_browser = "Safari"
         return result
+
     for browser in CHROMIUM_BROWSERS:
         result = _query_chromium(browser)
         if result:
+            _last_browser = browser
             return result
+
     return None

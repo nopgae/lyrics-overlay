@@ -146,11 +146,7 @@ class MusicPlayer:
 
         def _run() -> None:
             while self._playing:
-                if (
-                    not self._pygame.mixer.music.get_busy()
-                    and not self._paused
-                    and self._playing
-                ):
+                if not self._pygame.mixer.music.get_busy() and not self._paused:
                     self._playing = False
                     if self.on_track_end:
                         self.on_track_end()
