@@ -51,6 +51,7 @@ from .lyrics_fetcher import search_lyrics
 from .overlay import LyricsOverlay
 from .player import MusicPlayer
 from .sync_engine import SyncEngine
+from .music_watcher import get_music_info
 from .ytmusic_watcher import get_ytmusic_info
 
 
@@ -66,11 +67,16 @@ class AppDelegate(NSObject):
         self._overlay = LyricsOverlay()
         self._control = ControlPanel()
 
-        # YouTube Music state
+        # External source state (Music.app / YouTube Music)
         self._yt_info: dict | None = None
-        self._yt_fetch_key: tuple | None = None  # (title, artist) last fetched
-        self._yt_last_poll_wall: float = 0.0     # wall time of last YT poll
-        self._yt_last_poll_pos: float = 0.0      # YT position at last poll
+        self._yt_fetch_key: tuple | None = None
+        self._yt_last_poll_wall: float = 0.0
+        self._yt_last_poll_pos: float = 0.0
+
+        self._music_info: dict | None = None
+        self._music_fetch_key: tuple | None = None
+        self._music_last_poll_wall: float = 0.0
+        self._music_last_poll_pos: float = 0.0
 
         # Thread-safe queue for UI updates from background threads
         self._ui_q: queue.SimpleQueue = queue.SimpleQueue()
@@ -133,7 +139,8 @@ class AppDelegate(NSObject):
         # Skip if nothing is actively playing
         if not self._sync.has_lyrics:
             return
-        if not (self._player.is_playing or self._player.is_paused or self._yt_info):
+        if not (self._player.is_playing or self._player.is_paused
+                or self._yt_info or self._music_info):
             return
 
         pos = self._current_position()
@@ -144,15 +151,51 @@ class AppDelegate(NSObject):
         )
 
     def ytTick_(self, _timer):
+        # No need to poll external sources while the MP3 player is active
+        if self._player.is_playing or self._player.is_paused:
+            return
+
         def _poll():
-            info = get_ytmusic_info()
-            self._ui_q.put(lambda i=info: self._apply_yt_info(i))
+            music = get_music_info()
+            yt = None if music else get_ytmusic_info()
+            self._ui_q.put(lambda m=music, y=yt: self._apply_sources(m, y))
 
         threading.Thread(target=_poll, daemon=True).start()
 
     # ------------------------------------------------------------------ #
-    # YouTube Music                                                        #
+    # External sources (Music.app / YouTube Music)                        #
     # ------------------------------------------------------------------ #
+
+    def _apply_sources(self, music_info: dict | None, yt_info: dict | None):
+        """Route results from the background poll to the right handler."""
+        if music_info:
+            self._yt_info = None
+            self._yt_fetch_key = None
+            self._apply_music_info(music_info)
+        else:
+            self._music_info = None
+            self._music_fetch_key = None
+            self._apply_yt_info(yt_info)
+
+    def _apply_music_info(self, info: dict):
+        """Called on main thread via _ui_q."""
+        self._music_info = info
+        self._music_last_poll_wall = time.time()
+        self._music_last_poll_pos = info["current_time"]
+
+        title = info.get("title", "")
+        artist = info.get("artist", "")
+        label = f"Music.app: {title}  —  {artist}" if artist else f"Music.app: {title}"
+        self._control.update_yt(label)
+
+        key = (title, artist)
+        if key != self._music_fetch_key:
+            self._music_fetch_key = key
+            if self._player.is_playing or self._player.is_paused:
+                self._player.stop()
+                self._control.set_play_title("Play")
+            self._control.update_track(title, artist)
+            self._fetch_lyrics(title, artist, duration=info.get("duration", 0))
 
     def _apply_yt_info(self, info: dict | None):
         """Called on main thread via _ui_q."""
@@ -167,13 +210,12 @@ class AppDelegate(NSObject):
 
         title = info.get("title", "")
         artist = info.get("artist", "")
-        self._control.update_yt(f"{title}  —  {artist}" if artist else title)
+        label = f"YT Music: {title}  —  {artist}" if artist else f"YT Music: {title}"
+        self._control.update_yt(label)
 
-        # Fetch lyrics when song changes
         key = (title, artist)
         if key != self._yt_fetch_key:
             self._yt_fetch_key = key
-            # Stop MP3 so YT mode takes over
             if self._player.is_playing or self._player.is_paused:
                 self._player.stop()
                 self._control.set_play_title("Play")
@@ -189,10 +231,11 @@ class AppDelegate(NSObject):
         if self._player.is_playing or self._player.is_paused:
             return self._player.position
 
-        # YouTube Music: interpolate between polls
+        # Music.app or YouTube Music: interpolate between polls
+        if self._music_info:
+            return self._music_last_poll_pos + (time.time() - self._music_last_poll_wall)
         if self._yt_info:
-            elapsed = time.time() - self._yt_last_poll_wall
-            return self._yt_last_poll_pos + elapsed
+            return self._yt_last_poll_pos + (time.time() - self._yt_last_poll_wall)
 
         return 0.0
 
@@ -238,7 +281,8 @@ class AppDelegate(NSObject):
         artist = info.get("artist", "")
         self._control.update_track(title, artist)
         self._control.update_status("Loaded — press Play")
-        self._yt_info = None  # MP3 mode
+        self._yt_info = None    # MP3 mode takes over
+        self._music_info = None
 
         # LRC file next to the MP3?
         lrc = Path(path).with_suffix(".lrc")

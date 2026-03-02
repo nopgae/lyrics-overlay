@@ -79,7 +79,7 @@ class ControlPanel:
         cv.addSubview_(sl)
 
         # ── YouTube Music ─────────────────────────────────────────────
-        self._label(cv, "YouTube Music:", (10, 98, 120, 18), 10)
+        self._label(cv, "Now Playing:", (10, 98, 120, 18), 10)
         self._yt_lbl = self._label(cv, "Not detected", (135, 98, 235, 18), 10, alpha=0.6)
 
         # ── lyrics source ─────────────────────────────────────────────
