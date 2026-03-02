@@ -191,3 +191,16 @@ class LyricsOverlay:
             self._view._movable = movable
         if self._window:
             self._window.setMovableByWindowBackground_(movable)
+
+    def set_delegate(self, delegate) -> None:
+        if self._window:
+            self._window.setDelegate_(delegate)
+
+    def set_position(self, x: float, y: float) -> None:
+        if self._window:
+            self._window.setFrameOrigin_((x, y))
+
+    def get_origin(self):
+        if self._window:
+            return self._window.frame().origin
+        return None

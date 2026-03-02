@@ -43,7 +43,7 @@ from AppKit import (
     NSTimer,
     NSVariableStatusItemLength,
 )
-from Foundation import NSMakePoint, NSMakeRect, NSMakeSize, NSProcessInfo
+from Foundation import NSMakePoint, NSMakeRect, NSMakeSize, NSProcessInfo, NSUserDefaults
 
 from .control_panel import ControlPanel
 from .lrc_parser import load_lrc_file
@@ -105,7 +105,9 @@ class AppDelegate(NSObject):
             next_line="Open an MP3 or play a song in YouTube Music",
         )
 
+        self._overlay.set_delegate(self)
         self._setup_status_bar()
+        self._load_prefs()
         NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
 
         # 250 ms lyric sync timer (lyrics change ~1/s, 4fps is more than enough)
@@ -258,7 +260,9 @@ class AppDelegate(NSObject):
         self._overlay.set_visible(not self._overlay.is_visible())
 
     def opacityAction_(self, sender):
-        self._overlay.set_opacity(sender.floatValue())
+        alpha = sender.floatValue()
+        self._overlay.set_opacity(alpha)
+        self._save_pref_float("overlayOpacity", alpha)
 
     def _open_file(self):
         panel = NSOpenPanel.openPanel()
@@ -450,6 +454,36 @@ class AppDelegate(NSObject):
     def windowWillClose_(self, notif):
         if notif.object() == self._control._window:
             self._overlay.set_movable(False)
+
+    def windowDidMove_(self, notif):
+        if notif.object() == self._overlay._window:
+            o = self._overlay.get_origin()
+            if o:
+                self._save_pref_float("overlayX", o.x)
+                self._save_pref_float("overlayY", o.y)
+
+    # ------------------------------------------------------------------ #
+    # Preferences (NSUserDefaults)                                         #
+    # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def _save_pref_float(key: str, value: float) -> None:
+        NSUserDefaults.standardUserDefaults().setFloat_forKey_(value, key)
+
+    def _load_prefs(self) -> None:
+        prefs = NSUserDefaults.standardUserDefaults()
+
+        if prefs.objectForKey_("overlayOpacity") is not None:
+            alpha = prefs.floatForKey_("overlayOpacity")
+            self._overlay.set_opacity(alpha)
+            self._control.set_opacity_slider(alpha)
+
+        if (prefs.objectForKey_("overlayX") is not None
+                and prefs.objectForKey_("overlayY") is not None):
+            self._overlay.set_position(
+                prefs.floatForKey_("overlayX"),
+                prefs.floatForKey_("overlayY"),
+            )
 
     def toggleOverlayMenu_(self, _):
         self._overlay.set_visible(not self._overlay.is_visible())

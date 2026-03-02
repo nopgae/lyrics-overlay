@@ -31,6 +31,7 @@ class ControlPanel:
         self._yt_lbl: NSTextField | None = None
         self._source_lbl: NSTextField | None = None
         self._play_btn: NSButton | None = None
+        self._opacity_slider: NSSlider | None = None
 
     # ------------------------------------------------------------------ #
     # Build                                                                #
@@ -77,6 +78,7 @@ class ControlPanel:
         sl.setTarget_(action_target)
         sl.setAction_("opacityAction:")
         cv.addSubview_(sl)
+        self._opacity_slider = sl
 
         # ── YouTube Music ─────────────────────────────────────────────
         self._label(cv, "Now Playing:", (10, 98, 120, 18), 10)
@@ -149,3 +151,7 @@ class ControlPanel:
     def set_play_title(self, title: str) -> None:
         if self._play_btn:
             self._play_btn.setTitle_(title)
+
+    def set_opacity_slider(self, value: float) -> None:
+        if self._opacity_slider:
+            self._opacity_slider.setFloatValue_(value)
