@@ -30,7 +30,7 @@ class ControlPanel:
         self._status_lbl: NSTextField | None = None
         self._yt_lbl: NSTextField | None = None
         self._source_lbl: NSTextField | None = None
-        self._play_btn: NSButton | None = None
+        self._mode_btn: NSButton | None = None
         self._opacity_slider: NSSlider | None = None
 
     # ------------------------------------------------------------------ #
@@ -40,8 +40,7 @@ class ControlPanel:
     def create(self, screen_w: float, screen_h: float, action_target) -> None:
         """
         action_target: the NSObject whose action methods are called by buttons.
-        Expected selectors: openFileAction: playPauseAction: stopAction:
-                            toggleOverlayAction: opacityAction:
+        Expected selectors: toggleLyricsMode: showFullLyricsAction: opacityAction:
         """
         style = (NSWindowStyleMaskTitled
                  | NSWindowStyleMaskClosable
@@ -62,12 +61,11 @@ class ControlPanel:
         self._track_lbl  = self._label(cv, "No track loaded", (10, 210, 360, 18), 12, bold=True)
         self._status_lbl = self._label(cv, "Ready",           (10, 192, 360, 16), 10, alpha=0.6)
 
-        # ── transport buttons ─────────────────────────────────────────
-        self._btn(cv, "Open MP3…",      (10,  158, 110, 28), action_target, "openFileAction:")
-        self._play_btn = \
-            self._btn(cv, "Play",       (130, 158,  60, 28), action_target, "playPauseAction:")
-        self._btn(cv, "Stop",           (200, 158,  60, 28), action_target, "stopAction:")
-        self._btn(cv, "Toggle Overlay", (270, 158, 100, 28), action_target, "toggleOverlayAction:")
+        # ── mode toggle + full lyrics ─────────────────────────────────
+        self._mode_btn = self._btn(
+            cv, "Mode: Overlay", (10, 158, 180, 28), action_target, "toggleLyricsMode:"
+        )
+        self._btn(cv, "Full Lyrics", (200, 158, 170, 28), action_target, "showFullLyricsAction:")
 
         # ── opacity slider ────────────────────────────────────────────
         self._label(cv, "Overlay opacity:", (10, 128, 120, 18), 10)
@@ -114,7 +112,10 @@ class ControlPanel:
         lbl.setAlignment_(NSTextAlignmentLeft)
         font = NSFont.boldSystemFontOfSize_(size) if bold else NSFont.systemFontOfSize_(size)
         lbl.setFont_(font)
-        lbl.setTextColor_(NSColor.colorWithCalibratedWhite_alpha_(0.1, alpha))
+        if alpha >= 1.0:
+            lbl.setTextColor_(NSColor.labelColor())
+        else:
+            lbl.setTextColor_(NSColor.labelColor().colorWithAlphaComponent_(alpha))
         parent.addSubview_(lbl)
         return lbl
 
@@ -148,9 +149,9 @@ class ControlPanel:
         if self._source_lbl:
             self._source_lbl.setStringValue_(text)
 
-    def set_play_title(self, title: str) -> None:
-        if self._play_btn:
-            self._play_btn.setTitle_(title)
+    def set_mode_label(self, text: str) -> None:
+        if self._mode_btn:
+            self._mode_btn.setTitle_(text)
 
     def set_opacity_slider(self, value: float) -> None:
         if self._opacity_slider:

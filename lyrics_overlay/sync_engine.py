@@ -21,6 +21,14 @@ class SyncEngine:
     def has_lyrics(self) -> bool:
         return bool(self._lyrics)
 
+    @property
+    def lines(self) -> list[str]:
+        return [l.text for l in self._lyrics]
+
+    def get_current_idx(self, position: float) -> int:
+        """Return index of the current lyric line at *position*, or -1."""
+        return bisect.bisect_right(self._times, position) - 1
+
     def _index_at(self, position: float) -> int:
         """Return index of the last line whose timestamp <= position, or -1."""
         return bisect.bisect_right(self._times, position) - 1

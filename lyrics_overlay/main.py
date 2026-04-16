@@ -25,6 +25,7 @@ from pathlib import Path
 
 import objc
 from AppKit import (
+    NSAlert,
     NSApplication,
     NSApplicationActivationPolicyRegular,
     NSAttributedString,
@@ -43,9 +44,11 @@ from AppKit import (
     NSTimer,
     NSVariableStatusItemLength,
 )
+
 from Foundation import NSMakePoint, NSMakeRect, NSMakeSize, NSProcessInfo, NSUserDefaults
 
 from .control_panel import ControlPanel
+from .full_lyrics_window import FullLyricsWindow
 from .lrc_parser import load_lrc_file
 from .lyrics_fetcher import search_lyrics
 from .overlay import LyricsOverlay
@@ -53,6 +56,7 @@ from .player import MusicPlayer
 from .sync_engine import SyncEngine
 from .music_watcher import get_music_info
 from .ytmusic_watcher import get_ytmusic_info
+
 
 
 class AppDelegate(NSObject):
@@ -66,6 +70,14 @@ class AppDelegate(NSObject):
         self._sync = SyncEngine()
         self._overlay = LyricsOverlay()
         self._control = ControlPanel()
+        self._full_lyrics = FullLyricsWindow()
+
+        # Menu-bar lyrics mode
+        self._lyrics_mode: bool = False
+        self._lyric_parts: list = []
+        self._lyric_part_idx: int = 0
+        self._lyric_scroll_tick: int = 0
+        self._lyric_last_text: str = ""
 
         # External source state (Music.app / YouTube Music)
         self._yt_info: dict | None = None
@@ -98,6 +110,7 @@ class AppDelegate(NSObject):
 
         self._overlay.create(sw, sh)
         self._control.create(sw, sh, self)  # pass self as action target
+        self._full_lyrics.create(sw, sh)
         self._set_app_icon()
 
         self._overlay.update(
@@ -140,9 +153,13 @@ class AppDelegate(NSObject):
 
         # Skip if nothing is actively playing
         if not self._sync.has_lyrics:
+            if self._lyrics_mode:
+                self._status_item.button().setTitle_("♪")
             return
         if not (self._player.is_playing or self._player.is_paused
                 or self._yt_info or self._music_info):
+            if self._lyrics_mode:
+                self._status_item.button().setTitle_("♪")
             return
 
         pos = self._current_position()
@@ -151,6 +168,8 @@ class AppDelegate(NSObject):
             current=current,
             next_line=nexts[0] if nexts else "",
         )
+        self._update_status_lyric(current)
+        self._full_lyrics.highlight(self._sync.get_current_idx(pos))
 
     def ytTick_(self, _timer):
         # No need to poll external sources while the MP3 player is active
@@ -195,7 +214,6 @@ class AppDelegate(NSObject):
             self._music_fetch_key = key
             if self._player.is_playing or self._player.is_paused:
                 self._player.stop()
-                self._control.set_play_title("Play")
             self._control.update_track(title, artist)
             self._fetch_lyrics(title, artist, duration=info.get("duration", 0))
 
@@ -220,7 +238,6 @@ class AppDelegate(NSObject):
             self._yt_fetch_key = key
             if self._player.is_playing or self._player.is_paused:
                 self._player.stop()
-                self._control.set_play_title("Play")
             self._control.update_track(title, artist)
             self._fetch_lyrics(title, artist, duration=info.get("duration", 0))
 
@@ -253,7 +270,6 @@ class AppDelegate(NSObject):
 
     def stopAction_(self, _sender):
         self._player.stop()
-        self._control.set_play_title("Play")
         self._control.update_status("Stopped")
 
     def toggleOverlayAction_(self, _sender):
@@ -294,6 +310,7 @@ class AppDelegate(NSObject):
             lines = load_lrc_file(str(lrc))
             if lines:
                 self._sync.set_lyrics(lines)
+                self._full_lyrics.set_lyrics(self._sync.lines)
                 self._control.update_source(f"Local LRC  ({len(lines)} lines)")
                 return
 
@@ -307,10 +324,12 @@ class AppDelegate(NSObject):
             if lines:
                 def _apply():
                     self._sync.set_lyrics(lines)
+                    self._full_lyrics.set_lyrics(self._sync.lines)
                     self._control.update_source(f"LRCLIB  ({len(lines)} lines)")
             else:
                 def _apply():
                     self._sync.clear()
+                    self._full_lyrics.set_lyrics([])
                     self._control.update_source("Not found")
             self._ui_q.put(_apply)
 
@@ -319,21 +338,17 @@ class AppDelegate(NSObject):
     def _toggle_play(self):
         if self._player.is_playing:
             self._player.pause()
-            self._control.set_play_title("Resume")
             self._control.update_status("Paused")
         elif self._player.is_paused:
             self._player.resume()
-            self._control.set_play_title("Pause")
             self._control.update_status("Playing")
         elif self._player.is_loaded:
             self._player.play()
-            self._control.set_play_title("Pause")
             title = self._current_track.get("title", "Unknown")
             self._control.update_status(f"Playing: {title}")
 
     def _on_track_end(self):
         def _ui():
-            self._control.set_play_title("Play")
             self._control.update_status("Finished")
         self._ui_q.put(_ui)
 
@@ -418,32 +433,98 @@ class AppDelegate(NSObject):
 
     def _setup_status_bar(self):
         sb = NSStatusBar.systemStatusBar()
+
         self._status_item = sb.statusItemWithLength_(NSVariableStatusItemLength)
-        self._status_item.button().setTitle_("♪")
+        btn = self._status_item.button()
+        btn.setTitle_("♪ Lyrics")
+        btn.setAccessibilityIdentifier_("io.lyricsoverlay.note")
+        btn.setTarget_(self)
+        btn.setAction_("toggleLyricsMode:")
+        self._status_item.setVisible_(True)
 
-        menu = NSMenu.alloc().init()
 
-        show = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-            "Show Controls", "showControls:", ""
+    _LYRIC_PART_CHARS  = 56   # max chars per part (~400pt with 13pt font)
+    _LYRIC_WIDTH       = 400  # status item width in lyrics mode (pts)
+
+    def _set_lyric_text(self, text: str) -> None:
+        self._status_item.button().setTitle_(text)
+    _LYRIC_PART_TICKS  = 6    # ticks before advancing (6 × 250ms = 1.5 s)
+
+    def _split_lyric(self, text: str) -> list:
+        """Split text at word boundaries into ≤_LYRIC_PART_CHARS chunks."""
+        if not text:
+            return ["♪"]
+        if len(text) <= self._LYRIC_PART_CHARS:
+            return [text]
+        parts, current = [], ""
+        for word in text.split():
+            candidate = f"{current} {word}".strip()
+            if len(candidate) <= self._LYRIC_PART_CHARS:
+                current = candidate
+            else:
+                if current:
+                    parts.append(current)
+                current = word
+        if current:
+            parts.append(current)
+        return parts or [text[:self._LYRIC_PART_CHARS]]
+
+    def _update_status_lyric(self, text: str) -> None:
+        if not self._lyrics_mode:
+            return
+        t = (text or "").strip()
+        if t != self._lyric_last_text:
+            self._lyric_last_text = t
+            self._lyric_parts = self._split_lyric(t)
+            self._lyric_part_idx = 0
+            self._lyric_scroll_tick = 0
+            self._set_lyric_text(self._lyric_parts[0])
+            return
+        self._lyric_scroll_tick += 1
+        if self._lyric_scroll_tick >= self._LYRIC_PART_TICKS and len(self._lyric_parts) > 1:
+            self._lyric_scroll_tick = 0
+            self._lyric_part_idx = (self._lyric_part_idx + 1) % len(self._lyric_parts)
+            self._set_lyric_text(self._lyric_parts[self._lyric_part_idx])
+
+    def toggleLyricsMode_(self, _sender):
+        self._lyrics_mode = not self._lyrics_mode
+        if self._lyrics_mode:
+            self._status_item.setLength_(self._LYRIC_WIDTH)
+            self._overlay.set_visible(False)
+            self._status_item.button().setTitle_("♪")
+            self._control.set_mode_label("Mode: Menu Bar")
+        else:
+            self._lyric_parts = []
+            self._lyric_last_text = ""
+            self._status_item.setLength_(NSVariableStatusItemLength)
+            self._overlay.set_visible(True)
+            self._status_item.button().setTitle_("♪ Lyrics")
+            self._control.set_mode_label("Mode: Overlay")
+
+    def showFullLyricsAction_(self, _sender):
+        self._full_lyrics.show()
+
+    def _show_ax_permission_alert(self):
+        import sys
+        python_path = sys.executable
+        alert = NSAlert.alloc().init()
+        alert.setMessageText_("Accessibility Permission Required")
+        alert.setInformativeText_(
+            f"To hide other menu-bar icons, grant Accessibility access to Python:\n\n"
+            f"1. Open: System Settings → Privacy & Security → Accessibility\n"
+            f"2. Click + and add:\n   {python_path}\n"
+            f"3. Enable the toggle next to it\n"
+            f"4. Quit and relaunch Lyrics Overlay"
         )
-        show.setTarget_(self)
-        menu.addItem_(show)
-
-        toggle = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-            "Toggle Overlay", "toggleOverlayMenu:", ""
-        )
-        toggle.setTarget_(self)
-        menu.addItem_(toggle)
-
-        menu.addItem_(NSMenuItem.separatorItem())
-
-        quit_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-            "Quit Lyrics Overlay", "terminate:", "q"
-        )
-        quit_item.setTarget_(NSApplication.sharedApplication())
-        menu.addItem_(quit_item)
-
-        self._status_item.setMenu_(menu)
+        alert.addButtonWithTitle_("Open System Settings")
+        alert.addButtonWithTitle_("Cancel")
+        from lyrics_overlay.menu_bar_hider import request_ax_permission
+        request_ax_permission()
+        NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
+        if alert.runModal() == 1000:  # NSAlertFirstButtonReturn
+            import subprocess
+            subprocess.Popen(["open",
+                "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"])
 
     def showControls_(self, _):
         if self._control._window:
