@@ -23,7 +23,7 @@ def get_music_info() -> Optional[dict]:
         t0 = time.time()
         r = subprocess.run(
             ["osascript", "-e", _SCRIPT],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True, text=True, timeout=1,
         )
         fetched_at = (t0 + time.time()) / 2  # midpoint ≈ when position was read
         raw = r.stdout.strip()

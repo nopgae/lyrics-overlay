@@ -1,3 +1,4 @@
+import concurrent.futures
 import requests
 from typing import List, Optional
 
@@ -8,7 +9,10 @@ NETEASE_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
     "Referer": "https://music.163.com/",
 }
-TIMEOUT = 10
+TIMEOUT = 5
+
+# In-memory cache: (title_lower, artist_lower) → lines or None
+_cache: dict = {}
 
 # Metadata tag prefixes NetEase embeds at the top of LRC files
 _NETEASE_META = ("作词", "作曲", "编曲", "制作", "出品", "录音", "混音", "母带")
@@ -21,19 +25,33 @@ def search_lyrics(
     duration: float = 0,
 ) -> Optional[List[LyricLine]]:
     """
-    Fetch time-synced lyrics: LRCLIB first, NetEase Music as fallback.
-    Returns a list of LyricLine or None if not found.
+    Fetch time-synced lyrics: LRCLIB (exact + search in parallel) first,
+    NetEase Music as fallback. Returns a list of LyricLine or None.
     """
-    result = _search_lrclib(title, artist, album, duration)
-    if result:
-        return result
-    return _search_netease(title, artist)
+    key = (title.lower(), artist.lower())
+    if key in _cache:
+        return _cache[key]
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
+        f_exact = ex.submit(_lrclib_exact, title, artist, album, duration)
+        f_search = ex.submit(_lrclib_search, title, artist)
+        exact = f_exact.result()
+        if exact:
+            _cache[key] = exact
+            return exact
+        search = f_search.result()
+        if search:
+            _cache[key] = search
+            return search
+
+    result = _search_netease(title, artist)
+    _cache[key] = result  # cache None too, to avoid re-fetching misses
+    return result
 
 
-def _search_lrclib(
+def _lrclib_exact(
     title: str, artist: str, album: str, duration: float
 ) -> Optional[List[LyricLine]]:
-    # 1) Exact-match endpoint
     params: dict = {"track_name": title}
     if artist:
         params["artist_name"] = artist
@@ -41,7 +59,6 @@ def _search_lrclib(
         params["album_name"] = album
     if duration:
         params["duration"] = int(duration)
-
     try:
         resp = requests.get(f"{LRCLIB_BASE}/get", params=params, timeout=TIMEOUT)
         if resp.status_code == 200:
@@ -60,8 +77,10 @@ def _search_lrclib(
                 ]
     except Exception:
         pass
+    return None
 
-    # 2) Full-text search
+
+def _lrclib_search(title: str, artist: str) -> Optional[List[LyricLine]]:
     q = f"{title} {artist}".strip()
     try:
         resp = requests.get(
@@ -76,7 +95,6 @@ def _search_lrclib(
                         return lines
     except Exception:
         pass
-
     return None
 
 

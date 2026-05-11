@@ -37,7 +37,7 @@ def _osascript(script: str) -> str:
     try:
         r = subprocess.run(
             ["osascript", "-e", script],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True, text=True, timeout=2,
         )
         return r.stdout.strip()
     except Exception:

@@ -13,6 +13,7 @@ from AppKit import (
     NSColor,
     NSFont,
     NSMakeRect,
+    NSPopUpButton,
     NSSlider,
     NSTextField,
     NSTextAlignmentLeft,
@@ -32,6 +33,7 @@ class ControlPanel:
         self._source_lbl: NSTextField | None = None
         self._mode_btn: NSButton | None = None
         self._opacity_slider: NSSlider | None = None
+        self._source_popup: NSPopUpButton | None = None
 
     # ------------------------------------------------------------------ #
     # Build                                                                #
@@ -40,13 +42,13 @@ class ControlPanel:
     def create(self, screen_w: float, screen_h: float, action_target) -> None:
         """
         action_target: the NSObject whose action methods are called by buttons.
-        Expected selectors: toggleLyricsMode: showFullLyricsAction: opacityAction:
+        Expected selectors: toggleLyricsMode: showFullLyricsAction: opacityAction: sourceAction:
         """
         style = (NSWindowStyleMaskTitled
                  | NSWindowStyleMaskClosable
                  | NSWindowStyleMaskMiniaturizable)
         self._window = NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
-            ((screen_w / 2 - 190, screen_h / 2 - 120), (380, 240)),
+            ((screen_w / 2 - 190, screen_h / 2 - 135), (380, 270)),
             style,
             NSBackingStoreBuffered,
             False,
@@ -58,18 +60,18 @@ class ControlPanel:
         cv = self._window.contentView()
 
         # ── track / status ────────────────────────────────────────────
-        self._track_lbl  = self._label(cv, "No track loaded", (10, 210, 360, 18), 12, bold=True)
-        self._status_lbl = self._label(cv, "Ready",           (10, 192, 360, 16), 10, alpha=0.6)
+        self._track_lbl  = self._label(cv, "No track loaded", (10, 240, 360, 18), 12, bold=True)
+        self._status_lbl = self._label(cv, "Ready",           (10, 222, 360, 16), 10, alpha=0.6)
 
         # ── mode toggle + full lyrics ─────────────────────────────────
         self._mode_btn = self._btn(
-            cv, "Mode: Overlay", (10, 158, 180, 28), action_target, "toggleLyricsMode:"
+            cv, "Mode: Overlay", (10, 188, 180, 28), action_target, "toggleLyricsMode:"
         )
-        self._btn(cv, "Full Lyrics", (200, 158, 170, 28), action_target, "showFullLyricsAction:")
+        self._btn(cv, "Full Lyrics", (200, 188, 170, 28), action_target, "showFullLyricsAction:")
 
         # ── opacity slider ────────────────────────────────────────────
-        self._label(cv, "Overlay opacity:", (10, 128, 120, 18), 10)
-        sl = NSSlider.alloc().initWithFrame_(NSMakeRect(135, 124, 235, 26))
+        self._label(cv, "Overlay opacity:", (10, 158, 120, 18), 10)
+        sl = NSSlider.alloc().initWithFrame_(NSMakeRect(135, 154, 235, 26))
         sl.setMinValue_(0.0)
         sl.setMaxValue_(1.0)
         sl.setFloatValue_(0.78)
@@ -78,13 +80,24 @@ class ControlPanel:
         cv.addSubview_(sl)
         self._opacity_slider = sl
 
-        # ── YouTube Music ─────────────────────────────────────────────
-        self._label(cv, "Now Playing:", (10, 98, 120, 18), 10)
-        self._yt_lbl = self._label(cv, "Not detected", (135, 98, 235, 18), 10, alpha=0.6)
+        # ── now playing ───────────────────────────────────────────────
+        self._label(cv, "Now Playing:", (10, 128, 120, 18), 10)
+        self._yt_lbl = self._label(cv, "Not detected", (135, 128, 235, 18), 10, alpha=0.6)
 
         # ── lyrics source ─────────────────────────────────────────────
-        self._label(cv, "Lyrics source:", (10, 72, 120, 18), 10)
-        self._source_lbl = self._label(cv, "—", (135, 72, 235, 18), 10, alpha=0.6)
+        self._label(cv, "Lyrics source:", (10, 102, 120, 18), 10)
+        self._source_lbl = self._label(cv, "—", (135, 102, 235, 18), 10, alpha=0.6)
+
+        # ── music player selector ─────────────────────────────────────
+        self._label(cv, "Music player:", (10, 74, 120, 18), 10)
+        popup = NSPopUpButton.alloc().initWithFrame_(NSMakeRect(135, 70, 235, 26))
+        popup.addItemWithTitle_("Auto-detect")
+        popup.addItemWithTitle_("YouTube Music")
+        popup.addItemWithTitle_("Music.app")
+        popup.setTarget_(action_target)
+        popup.setAction_("sourceAction:")
+        cv.addSubview_(popup)
+        self._source_popup = popup
 
         # ── hint ──────────────────────────────────────────────────────
         self._label(
@@ -156,3 +169,7 @@ class ControlPanel:
     def set_opacity_slider(self, value: float) -> None:
         if self._opacity_slider:
             self._opacity_slider.setFloatValue_(value)
+
+    def set_source_selector(self, index: int) -> None:
+        if self._source_popup:
+            self._source_popup.selectItemAtIndex_(index)

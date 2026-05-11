@@ -93,6 +93,9 @@ class AppDelegate(NSObject):
         self._music_last_poll_pos: float = 0.0
         self._music_miss_count: int = 0
 
+        # Music source override: "auto" | "youtube_music" | "music_app"
+        self._source_override: str = "auto"
+
         # Thread-safe queue for UI updates from background threads
         self._ui_q: queue.SimpleQueue = queue.SimpleQueue()
 
@@ -138,6 +141,9 @@ class AppDelegate(NSObject):
 
         self._player.on_track_end = self._on_track_end
 
+        # Kick off an immediate first poll instead of waiting for the 1s timer
+        threading.Thread(target=self._initial_poll, daemon=True).start()
+
     def applicationShouldTerminateAfterLastWindowClosed_(self, _app):
         return False
 
@@ -174,6 +180,14 @@ class AppDelegate(NSObject):
         self._update_status_lyric(current)
         self._full_lyrics.highlight(self._sync.get_current_idx(pos))
 
+    def _initial_poll(self):
+        self._yt_polling = True
+        try:
+            music, yt = self._poll_sources()
+            self._ui_q.put(lambda m=music, y=yt: self._apply_sources(m, y))
+        finally:
+            self._yt_polling = False
+
     def ytTick_(self, _timer):
         # No need to poll external sources while the MP3 player is active
         if self._player.is_playing or self._player.is_paused:
@@ -186,13 +200,26 @@ class AppDelegate(NSObject):
 
         def _poll():
             try:
-                music = get_music_info()
-                yt = None if music else get_ytmusic_info()
+                music, yt = self._poll_sources()
                 self._ui_q.put(lambda m=music, y=yt: self._apply_sources(m, y))
             finally:
                 self._yt_polling = False
 
         threading.Thread(target=_poll, daemon=True).start()
+
+    def _poll_sources(self) -> tuple:
+        """Poll music sources; respects _source_override."""
+        if self._source_override == "youtube_music":
+            return None, get_ytmusic_info()
+        if self._source_override == "music_app":
+            return get_music_info(), None
+        # Auto: both in parallel, Music.app takes priority
+        with __import__('concurrent.futures', fromlist=['ThreadPoolExecutor']).ThreadPoolExecutor(max_workers=2) as ex:
+            f_music = ex.submit(get_music_info)
+            f_yt = ex.submit(get_ytmusic_info)
+            music = f_music.result()
+            yt = f_yt.result()
+        return music, (None if music else yt)
 
     # ------------------------------------------------------------------ #
     # External sources (Music.app / YouTube Music)                        #
@@ -226,6 +253,8 @@ class AppDelegate(NSObject):
             self._music_fetch_key = key
             if self._player.is_playing or self._player.is_paused:
                 self._player.stop()
+            self._sync.clear()
+            self._full_lyrics.set_lyrics([])
             self._control.update_track(title, artist)
             self._fetch_lyrics(title, artist, duration=info.get("duration", 0))
 
@@ -255,6 +284,8 @@ class AppDelegate(NSObject):
             self._yt_fetch_key = key
             if self._player.is_playing or self._player.is_paused:
                 self._player.stop()
+            self._sync.clear()
+            self._full_lyrics.set_lyrics([])
             self._control.update_track(title, artist)
             self._fetch_lyrics(title, artist, duration=info.get("duration", 0))
 
@@ -262,16 +293,22 @@ class AppDelegate(NSObject):
     # Position                                                             #
     # ------------------------------------------------------------------ #
 
+    # Audio hardware buffers ~200ms ahead of perceived output; subtract so
+    # lyrics don't appear before you hear the line. Tune if still off.
+    _LYRIC_OFFSET = 0.2
+
     def _current_position(self) -> float:
         # MP3 player has priority
         if self._player.is_playing or self._player.is_paused:
-            return self._player.position
+            return max(0.0, self._player.position - self._LYRIC_OFFSET)
 
         # Music.app or YouTube Music: interpolate between polls
         if self._music_info:
-            return self._music_last_poll_pos + (time.time() - self._music_last_poll_wall)
+            pos = self._music_last_poll_pos + (time.time() - self._music_last_poll_wall)
+            return max(0.0, pos - self._LYRIC_OFFSET)
         if self._yt_info:
-            return self._yt_last_poll_pos + (time.time() - self._yt_last_poll_wall)
+            pos = self._yt_last_poll_pos + (time.time() - self._yt_last_poll_wall)
+            return max(0.0, pos - self._LYRIC_OFFSET)
 
         return 0.0
 
@@ -296,6 +333,13 @@ class AppDelegate(NSObject):
         alpha = sender.floatValue()
         self._overlay.set_opacity(alpha)
         self._save_pref_float("overlayOpacity", alpha)
+
+    def sourceAction_(self, sender):
+        _opts = ["auto", "youtube_music", "music_app"]
+        self._source_override = _opts[sender.indexOfSelectedItem()]
+        NSUserDefaults.standardUserDefaults().setObject_forKey_(
+            self._source_override, "sourceOverride"
+        )
 
     def _open_file(self):
         panel = NSOpenPanel.openPanel()
@@ -581,6 +625,13 @@ class AppDelegate(NSObject):
             self._overlay.set_position(
                 prefs.floatForKey_("overlayX"),
                 prefs.floatForKey_("overlayY"),
+            )
+
+        src = prefs.stringForKey_("sourceOverride")
+        if src in ("auto", "youtube_music", "music_app"):
+            self._source_override = src
+            self._control.set_source_selector(
+                ["auto", "youtube_music", "music_app"].index(src)
             )
 
     def toggleOverlayMenu_(self, _):
