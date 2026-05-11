@@ -84,11 +84,14 @@ class AppDelegate(NSObject):
         self._yt_fetch_key: tuple | None = None
         self._yt_last_poll_wall: float = 0.0
         self._yt_last_poll_pos: float = 0.0
+        self._yt_miss_count: int = 0   # consecutive polls returning None
+        self._yt_polling: bool = False  # guard against overlapping poll threads
 
         self._music_info: dict | None = None
         self._music_fetch_key: tuple | None = None
         self._music_last_poll_wall: float = 0.0
         self._music_last_poll_pos: float = 0.0
+        self._music_miss_count: int = 0
 
         # Thread-safe queue for UI updates from background threads
         self._ui_q: queue.SimpleQueue = queue.SimpleQueue()
@@ -128,9 +131,9 @@ class AppDelegate(NSObject):
             0.25, self, "syncTick:", None, True
         )
 
-        # 2 s YouTube Music poll timer
+        # 1 s YouTube Music / Music.app poll timer
         self._yt_timer = NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
-            2.0, self, "ytTick:", None, True
+            1.0, self, "ytTick:", None, True
         )
 
         self._player.on_track_end = self._on_track_end
@@ -175,11 +178,19 @@ class AppDelegate(NSObject):
         # No need to poll external sources while the MP3 player is active
         if self._player.is_playing or self._player.is_paused:
             return
+        # Skip if a poll thread is still running (prevents stale results)
+        if self._yt_polling:
+            return
+
+        self._yt_polling = True
 
         def _poll():
-            music = get_music_info()
-            yt = None if music else get_ytmusic_info()
-            self._ui_q.put(lambda m=music, y=yt: self._apply_sources(m, y))
+            try:
+                music = get_music_info()
+                yt = None if music else get_ytmusic_info()
+                self._ui_q.put(lambda m=music, y=yt: self._apply_sources(m, y))
+            finally:
+                self._yt_polling = False
 
         threading.Thread(target=_poll, daemon=True).start()
 
@@ -200,6 +211,7 @@ class AppDelegate(NSObject):
 
     def _apply_music_info(self, info: dict):
         """Called on main thread via _ui_q."""
+        self._music_miss_count = 0
         self._music_info = info
         self._music_last_poll_wall = info.get("_fetched_at", time.time())
         self._music_last_poll_pos = info["current_time"]
@@ -220,10 +232,15 @@ class AppDelegate(NSObject):
     def _apply_yt_info(self, info: dict | None):
         """Called on main thread via _ui_q."""
         if not info:
-            self._yt_info = None
-            self._control.update_yt("Not playing")
+            self._yt_miss_count += 1
+            # Tolerate up to 2 consecutive missed polls (~2 s) before clearing,
+            # so brief browser hiccups don't drop lyrics mid-song.
+            if self._yt_miss_count >= 3:
+                self._yt_info = None
+                self._control.update_yt("Not playing")
             return
 
+        self._yt_miss_count = 0
         self._yt_info = info
         self._yt_last_poll_wall = info.get("_fetched_at", time.time())
         self._yt_last_poll_pos = info["current_time"]

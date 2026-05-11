@@ -44,8 +44,7 @@ def _osascript(script: str) -> str:
         return ""
 
 
-def _parse(raw: str) -> Optional[dict]:
-    fetched_at = time.time()   # captured right after osascript returns
+def _parse(raw: str, fetched_at: float) -> Optional[dict]:
     if not raw:
         return None
     try:
@@ -83,7 +82,10 @@ tell application "{app}"
 end tell
 return ""
 """
-    return _parse(_osascript(script))
+    t0 = time.time()
+    raw = _osascript(script)
+    t1 = time.time()
+    return _parse(raw, (t0 + t1) / 2)
 
 
 def _query_safari() -> Optional[dict]:
@@ -105,7 +107,10 @@ tell application "Safari"
 end tell
 return ""
 """
-    return _parse(_osascript(script))
+    t0 = time.time()
+    raw = _osascript(script)
+    t1 = time.time()
+    return _parse(raw, (t0 + t1) / 2)
 
 
 def get_ytmusic_info() -> Optional[dict]:
