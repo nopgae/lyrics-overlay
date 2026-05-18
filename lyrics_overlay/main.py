@@ -29,7 +29,9 @@ from AppKit import (
     NSApplication,
     NSApplicationActivationPolicyRegular,
     NSAttributedString,
+    NSBackingStoreBuffered,
     NSBezierPath,
+    NSButton,
     NSColor,
     NSFont,
     NSFontAttributeName,
@@ -39,10 +41,16 @@ from AppKit import (
     NSMenuItem,
     NSObject,
     NSOpenPanel,
+    NSPanel,
     NSScreen,
     NSStatusBar,
+    NSTextField,
+    NSTextAlignmentCenter,
     NSTimer,
     NSVariableStatusItemLength,
+    NSWindowCollectionBehaviorCanJoinAllSpaces,
+    NSWindowCollectionBehaviorStationary,
+    NSWindowStyleMaskBorderless,
 )
 
 from Foundation import NSMakePoint, NSMakeRect, NSMakeSize, NSProcessInfo, NSUserDefaults
@@ -100,6 +108,11 @@ class AppDelegate(NSObject):
         self._ui_q: queue.SimpleQueue = queue.SimpleQueue()
 
         self._current_track: dict = {}
+        self._status_item = None  # set by main() before delegate is used
+
+        # Notch-zone fallback panel (used when NSStatusBar slot is in overflow)
+        self._notch_panel = None
+        self._notch_lbl: NSTextField | None = None
 
         return self
 
@@ -129,6 +142,11 @@ class AppDelegate(NSObject):
         self._load_prefs()
         NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
 
+        # Check for menu bar overflow after 1 s — give SystemUIServer time to place the item
+        NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
+            1.0, self, "checkNotchFallback:", None, False
+        )
+
         # 250 ms lyric sync timer (lyrics change ~1/s, 4fps is more than enough)
         self._sync_timer = NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
             0.25, self, "syncTick:", None, True
@@ -147,6 +165,9 @@ class AppDelegate(NSObject):
     def applicationShouldTerminateAfterLastWindowClosed_(self, _app):
         return False
 
+    def checkNotchFallback_(self, _timer):
+        self._setup_notch_panel_if_needed()
+
     # ------------------------------------------------------------------ #
     # Timers (main thread)                                                 #
     # ------------------------------------------------------------------ #
@@ -163,12 +184,12 @@ class AppDelegate(NSObject):
         # Skip if nothing is actively playing
         if not self._sync.has_lyrics:
             if self._lyrics_mode:
-                self._status_item.button().setTitle_("♪")
+                self._set_lyric_text("♪")
             return
         if not (self._player.is_playing or self._player.is_paused
                 or self._yt_info or self._music_info):
             if self._lyrics_mode:
-                self._status_item.button().setTitle_("♪")
+                self._set_lyric_text("♪")
             return
 
         pos = self._current_position()
@@ -493,22 +514,101 @@ class AppDelegate(NSObject):
         app.setMainMenu_(menubar)
 
     def _setup_status_bar(self):
-        sb = NSStatusBar.systemStatusBar()
-
-        self._status_item = sb.statusItemWithLength_(NSVariableStatusItemLength)
+        # _status_item was pre-created in main() to claim the slot early.
+        # Just wire up the button target/action here.
         btn = self._status_item.button()
-        btn.setTitle_("♪ Lyrics")
+        btn.setTitle_("♪")
         btn.setAccessibilityIdentifier_("io.lyricsoverlay.note")
         btn.setTarget_(self)
         btn.setAction_("toggleLyricsMode:")
         self._status_item.setVisible_(True)
 
+    def _is_status_item_overflow(self) -> bool:
+        try:
+            win = self._status_item.button().window()
+            return win is None or win.frame().origin.x < 0
+        except Exception:
+            return True
+
+    def _setup_notch_panel_if_needed(self) -> None:
+        """Create a ♪ panel in the notch zone if the NSStatusBar item is in overflow."""
+        if not self._is_status_item_overflow():
+            return
+        if self._notch_panel is not None:
+            return
+
+        screen = NSScreen.mainScreen()
+        try:
+            left_area = screen.auxiliaryTopLeftArea()
+            right_area = screen.auxiliaryTopRightArea()
+            notch_x = left_area.origin.x + left_area.size.width
+            notch_w = right_area.origin.x - notch_x
+            panel_y = right_area.origin.y
+            panel_h = right_area.size.height
+        except Exception:
+            f = screen.frame()
+            notch_x = f.size.width * 0.43
+            notch_w = f.size.width * 0.14
+            panel_y = f.size.height - 32
+            panel_h = 32
+
+        _NONACTIVATING = 1 << 7
+        style = NSWindowStyleMaskBorderless | _NONACTIVATING
+        panel = NSPanel.alloc().initWithContentRect_styleMask_backing_defer_(
+            ((notch_x, panel_y), (notch_w, panel_h)),
+            style, NSBackingStoreBuffered, False,
+        )
+        panel.setLevel_(25)  # NSStatusBarWindowLevel — same level as status items
+        panel.setOpaque_(False)
+        panel.setBackgroundColor_(NSColor.clearColor())
+        panel.setHasShadow_(False)
+        panel.setIgnoresMouseEvents_(False)
+        panel.setCollectionBehavior_(
+            NSWindowCollectionBehaviorCanJoinAllSpaces
+            | NSWindowCollectionBehaviorStationary
+        )
+
+        lbl_h = 18
+        lbl_y = (panel_h - lbl_h) / 2
+        lbl = NSTextField.alloc().initWithFrame_(
+            NSMakeRect(0, lbl_y, notch_w, lbl_h)
+        )
+        lbl.setBezeled_(False)
+        lbl.setDrawsBackground_(False)
+        lbl.setEditable_(False)
+        lbl.setSelectable_(False)
+        lbl.setAlignment_(NSTextAlignmentCenter)
+        lbl.setTextColor_(NSColor.whiteColor())
+        lbl.setFont_(NSFont.menuBarFontOfSize_(13))
+        lbl.cell().setWraps_(False)
+        lbl.cell().setScrollable_(True)
+        lbl.setStringValue_("♪")
+        panel.contentView().addSubview_(lbl)
+
+        # Transparent click-through button covering the whole panel
+        click_btn = NSButton.alloc().initWithFrame_(
+            NSMakeRect(0, 0, notch_w, panel_h)
+        )
+        click_btn.setTitle_("")
+        click_btn.setBordered_(False)
+        click_btn.setTransparent_(True)
+        click_btn.setTarget_(self)
+        click_btn.setAction_("toggleLyricsMode:")
+        panel.contentView().addSubview_(click_btn)
+
+        self._notch_panel = panel
+        self._notch_lbl = lbl
+        self._notch_w = notch_w
+        panel.orderFrontRegardless()
 
     _LYRIC_PART_CHARS  = 56   # max chars per part (~400pt with 13pt font)
     _LYRIC_WIDTH       = 400  # status item width in lyrics mode (pts)
 
     def _set_lyric_text(self, text: str) -> None:
-        self._status_item.button().setTitle_(text)
+        if self._notch_panel is not None:
+            self._notch_lbl.setStringValue_(text or "♪")
+        else:
+            self._status_item.button().setTitle_(text)
     _LYRIC_PART_TICKS  = 6    # ticks before advancing (6 × 250ms = 1.5 s)
 
     def _split_lyric(self, text: str) -> list:
@@ -552,14 +652,14 @@ class AppDelegate(NSObject):
         if self._lyrics_mode:
             self._status_item.setLength_(self._LYRIC_WIDTH)
             self._overlay.set_visible(False)
-            self._status_item.button().setTitle_("♪")
+            self._set_lyric_text("♪")
             self._control.set_mode_label("Mode: Menu Bar")
         else:
             self._lyric_parts = []
             self._lyric_last_text = ""
             self._status_item.setLength_(NSVariableStatusItemLength)
             self._overlay.set_visible(True)
-            self._status_item.button().setTitle_("♪ Lyrics")
+            self._set_lyric_text("♪")
             self._control.set_mode_label("Mode: Overlay")
 
     def showFullLyricsAction_(self, _sender):
@@ -660,7 +760,15 @@ def main():
     app = NSApplication.sharedApplication()
     app.setActivationPolicy_(NSApplicationActivationPolicyRegular)
 
+    # Claim the status bar slot immediately — before app.run() — so the item
+    # registers before any competing apps can fill the remaining space.
+    _early_status_item = NSStatusBar.systemStatusBar().statusItemWithLength_(
+        NSVariableStatusItemLength
+    )
+    _early_status_item.button().setTitle_("♪")
+
     delegate = AppDelegate.alloc().init()
+    delegate._status_item = _early_status_item
     app.setDelegate_(delegate)
 
     try:

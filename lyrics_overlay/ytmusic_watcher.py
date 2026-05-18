@@ -1,21 +1,16 @@
 """
-YouTube Music watcher via AppleScript.
+YouTube Music watcher via NSAppleScript (in-process, uses app bundle permissions).
 
 Supports:
   - Chrome / Brave / Edge / Chromium : execute javascript "..." in tab
   - Safari                            : do JavaScript "..." in tab
-
-Requirements:
-  - Chrome/Brave/Edge: Developer menu → Allow JavaScript from Apple Events
-  - Safari: Develop menu → Allow JavaScript from Apple Events
-    (Enable Develop menu in Safari → Settings → Advanced)
-  - macOS Accessibility permission for the running Python process
 """
 
 import json
-import subprocess
 import time
 from typing import Optional
+
+from Foundation import NSAppleScript
 
 CHROMIUM_BROWSERS = [
     "Google Chrome",
@@ -33,13 +28,14 @@ _JS = _JS_RAW.replace('"', '\\"')   # escaped once at import time
 _last_browser: Optional[str] = None
 
 
-def _osascript(script: str) -> str:
+def _run(source: str) -> str:
     try:
-        r = subprocess.run(
-            ["osascript", "-e", script],
-            capture_output=True, text=True, timeout=2,
-        )
-        return r.stdout.strip()
+        s = NSAppleScript.alloc().initWithSource_(source)
+        desc, err = s.executeAndReturnError_(None)
+        if err or desc is None:
+            return ""
+        v = desc.stringValue()
+        return str(v) if v else ""
     except Exception:
         return ""
 
@@ -83,7 +79,7 @@ end tell
 return ""
 """
     t0 = time.time()
-    raw = _osascript(script)
+    raw = _run(script)
     t1 = time.time()
     return _parse(raw, (t0 + t1) / 2)
 
@@ -108,7 +104,7 @@ end tell
 return ""
 """
     t0 = time.time()
-    raw = _osascript(script)
+    raw = _run(script)
     t1 = time.time()
     return _parse(raw, (t0 + t1) / 2)
 
@@ -116,7 +112,6 @@ return ""
 def get_ytmusic_info() -> Optional[dict]:
     """
     Return playback info dict from YouTube Music, or None if not playing.
-
     Keys: title, artist, current_time (seconds), duration (seconds), source
     """
     global _last_browser

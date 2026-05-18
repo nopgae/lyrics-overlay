@@ -19,8 +19,8 @@ OPTIONS = {
         "CFBundleName": "Lyrics Overlay",
         "CFBundleDisplayName": "Lyrics Overlay",
         "CFBundleIdentifier": "com.nopgae.lyrics-overlay",
-        "CFBundleVersion": "0.1.0",
-        "CFBundleShortVersionString": "0.1.0",
+        "CFBundleVersion": "0.4.0",
+        "CFBundleShortVersionString": "0.4.0",
         "NSHighResolutionCapable": True,
         "LSUIElement": True,          # Hide from Dock (menu bar app)
         "NSMicrophoneUsageDescription": "",
@@ -36,4 +36,5 @@ setup(
     data_files=DATA_FILES,
     options={"py2app": OPTIONS},
     setup_requires=["py2app"],
+    python_requires=">=3.12",
 )
