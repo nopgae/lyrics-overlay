@@ -27,4 +27,5 @@ shot demo_light LYRICS_DEMO=1 LYRICS_DARK=0
 shot empty_dark LYRICS_DARK=1
 shot full LYRICS_DEMO=1 LYRICS_TARGET=full
 shot karaoke LYRICS_DEMO=1 LYRICS_TARGET=karaoke
+shot notch LYRICS_DEMO=1 LYRICS_TARGET=notch
 for tab in 0 1 2 3; do shot "settings_$tab" LYRICS_SETTINGS_TAB=$tab; done

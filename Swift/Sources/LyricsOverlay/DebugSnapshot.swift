@@ -9,7 +9,7 @@ import SwiftUI
 /// `LYRICS_TARGET=karaoke` captures the karaoke panel instead.
 enum DebugSnapshot {
     @MainActor
-    static func runIfRequested(model: LyricsModel, karaoke: KaraokePanelController?,
+    static func runIfRequested(model: LyricsModel, karaoke: KaraokePanelController?, notch: NotchPanelController?,
                                fullLyrics: FullLyricsWindowController, settings: SettingsWindowController) {
         let env = ProcessInfo.processInfo.environment
         guard let path = env["LYRICS_SNAPSHOT"] else { return }
@@ -20,6 +20,18 @@ enum DebugSnapshot {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
                 try? String(settings.window.windowNumber).write(toFile: path, atomically: true, encoding: .utf8)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 3) { exit(0) }
+            }
+            return
+        }
+        if env["LYRICS_TARGET"] == "notch", let panel = notch?.panel {
+            let saved = model.notchMode
+            model.notchMode = .always
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                try? String(panel.windowNumber).write(toFile: path, atomically: true, encoding: .utf8)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                    model.notchMode = saved
+                    exit(0)
+                }
             }
             return
         }

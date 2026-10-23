@@ -65,6 +65,9 @@ final class LyricsModel {
     var karaokeFontSize: CGFloat {
         didSet { UserDefaults.standard.set(Double(karaokeFontSize), forKey: "karaokeFontSize") }
     }
+    var notchMode: NotchMode {
+        didSet { UserDefaults.standard.set(notchMode.rawValue, forKey: "notchMode") }
+    }
     /// How strongly the artwork color tints the karaoke background (0…1).
     var karaokeTint: Double {
         didSet { UserDefaults.standard.set(karaokeTint, forKey: "karaokeTint") }
@@ -125,6 +128,7 @@ final class LyricsModel {
         showKaraoke = d.object(forKey: "showKaraoke") as? Bool ?? true
         karaokeFontSize = CGFloat(d.object(forKey: "karaokeFontSize") as? Double ?? 30)
         karaokeTint = d.object(forKey: "karaokeTint") as? Double ?? 0.35
+        notchMode = d.string(forKey: "notchMode").flatMap(NotchMode.init(rawValue:)) ?? .auto
         start()
     }
 

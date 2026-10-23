@@ -42,6 +42,9 @@ private struct GeneralSettings: View {
                 }
             }
             .disabled(!model.showLyricsInMenuBar)
+            Picker("Lyrics under the notch", selection: $model.notchMode) {
+                ForEach(NotchMode.allCases) { Text($0.title).tag($0) }
+            }
             Toggle("Launch at login", isOn: $launchAtLogin)
                 .onChange(of: launchAtLogin) { _, on in setLaunchAtLogin(on) }
             if let loginError {
