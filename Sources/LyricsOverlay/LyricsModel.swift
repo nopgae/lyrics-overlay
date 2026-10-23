@@ -78,11 +78,6 @@ final class LyricsModel {
     var iconsHiddenWhenIdle: Bool {
         didSet { UserDefaults.standard.set(iconsHiddenWhenIdle, forKey: "iconsHiddenWhenIdle") }
     }
-
-    /// ♪ stays in the menu bar until its position has been measured once.
-    var menuBarPlacementDone: Bool {
-        didSet { UserDefaults.standard.set(menuBarPlacementDone, forKey: "menuBarPlacementDone") }
-    }
     var notchMode: NotchMode {
         didSet { UserDefaults.standard.set(notchMode.rawValue, forKey: "notchMode") }
     }
@@ -161,18 +156,13 @@ final class LyricsModel {
         karaokeTint = d.object(forKey: "karaokeTint") as? Double ?? 0.35
         hideIconsWhilePlaying = d.object(forKey: "hideIconsWhilePlaying") as? Bool ?? true
         iconsHiddenWhenIdle = d.object(forKey: "iconsHiddenWhenIdle") as? Bool ?? true
-        menuBarPlacementDone = d.bool(forKey: "menuBarPlacementDone")
         notchMode = d.string(forKey: "notchMode").flatMap(NotchMode.init(rawValue:)) ?? .auto
         start()
     }
 
     private func start() {
-        localPlayer.onFinish = { [weak self] in
-            MainActor.assumeIsolated { self?.requestPoll() }
-        }
-        nowPlaying.onChange = { [weak self] in
-            MainActor.assumeIsolated { self?.requestPoll() }
-        }
+        localPlayer.onFinish = { [weak self] in self?.requestPoll() }
+        nowPlaying.onChange = { [weak self] in self?.requestPoll() }
         let dnc = DistributedNotificationCenter.default()
         for name in ["com.apple.Music.playerInfo", "com.spotify.client.PlaybackStateChanged"] {
             observers.append(dnc.addObserver(forName: .init(name), object: nil, queue: .main) { [weak self] _ in

@@ -55,6 +55,9 @@ struct PlaybackSnapshot: Equatable {
     var trackKey: String { "\(title)\u{1}\(artist)" }
 }
 
+/// Main-actor bound: sources keep state (latest helper line, loaded file) that the
+/// main thread writes while polls read it.
+@MainActor
 protocol MusicSource: AnyObject {
     var id: SourceID { get }
     /// nil when the player isn't running or has nothing loaded.
@@ -128,7 +131,7 @@ class ScriptablePlayer: MusicSource {
     func next() async { _ = await AppleScriptRunner.shared.run("\(tell) to next track") }
     func previous() async { _ = await AppleScriptRunner.shared.run("\(tell) to previous track") }
     func seek(to seconds: TimeInterval) async {
-        _ = await AppleScriptRunner.shared.run("\(tell) to set player position to \(seconds)")
+        _ = await AppleScriptRunner.shared.run("\(tell) to set player position to \(seconds)", cache: false)
     }
 }
 

@@ -20,8 +20,6 @@ final class MenuBarDividerController: NSObject {
     private let model: LyricsModel
     private var expander: NSStatusItem?
     private var toggle: NSStatusItem?
-    /// Set once ♪ has been seen right of the expander (see `canCollapse`).
-    private var orderVerified = false
     private var placementAttempts = 0
 
     static let collapsedLength: CGFloat = 10_000
@@ -61,14 +59,6 @@ final class MenuBarDividerController: NSObject {
             where d.object(forKey: key) == nil {
                 d.set(value, forKey: key)
             }
-            // The toggle used to sit right of ♪; move it once to between the expander and ♪.
-            if !d.bool(forKey: "toggleLeftOfLyrics") {
-                let expanderPosition = d.object(forKey: Self.positionKey(Self.expanderName)) as? Double
-                    ?? lyricsPosition + 1
-                d.set(lyricsPosition + (expanderPosition - lyricsPosition) / 2, forKey: Self.positionKey(Self.toggleName))
-                d.set(true, forKey: "toggleLeftOfLyrics")
-            }
-            model.menuBarPlacementDone = true
         }
 
         expander = Self.makeExpander()
@@ -91,13 +81,16 @@ final class MenuBarDividerController: NSObject {
         model.iconsHiddenWhenIdle.toggle()
     }
 
-    /// The MenuBarExtra's status item window (MenuBarExtra doesn't expose the item).
-    private var lyricsItemWindow: NSWindow? {
-        let ours = [expander, toggle].compactMap { $0?.button?.window }
-        return NSApp.windows.first { w in
-            w.className == "NSStatusBarWindow" && w.isVisible && !ours.contains { $0 === w }
+    /// The MenuBarExtra's (♪) status item windows; MenuBarExtra doesn't expose the item.
+    /// Our own items are told apart by their "LyricsOverlay…" autosave names.
+    static func lyricsItemWindows() -> [NSWindow] {
+        NSApp.windows.filter { w in
+            w.className == "NSStatusBarWindow"
+                && !(statusItem(of: w)?.autosaveName.hasPrefix("LyricsOverlay") ?? false)
         }
     }
+
+    private var lyricsItemWindow: NSWindow? { Self.lyricsItemWindows().first { $0.isVisible } }
 
     /// The NSStatusItem behind a status bar window, via AppKit's private accessor.
     private static func statusItem(of window: NSWindow) -> NSStatusItem? {
@@ -134,7 +127,6 @@ final class MenuBarDividerController: NSObject {
         NSStatusBar.system.removeStatusItem(expander)
         d.set(closer, forKey: Self.positionKey(Self.expanderName))
         self.expander = Self.makeExpander()
-        orderVerified = false
         update()
         scheduleAdjacencyCheck()
     }
@@ -174,15 +166,14 @@ final class MenuBarDividerController: NSObject {
         update()
     }
 
-    /// On the very first launch the MenuBarExtra item was created before its position
-    /// was stored, so it can sit left of the expander until a relaunch; collapsing then
-    /// would hide ♪ too.
+    /// ♪ can sit left of the expander (first launch, before its position was stored, or
+    /// after a ⌘-drag); collapsing then would hide ♪ too. Checked on every update, so a
+    /// collapsed expander that swallowed ♪ opens again.
     private var canCollapse: Bool {
-        if orderVerified { return true }
         guard let expanderWindow = expander?.button?.window, let lyrics = lyricsItemWindow else { return false }
-        orderVerified = lyrics.frame.minX >= expanderWindow.frame.maxX - 1
-        if !orderVerified { log.info("♪ is left of the divider; not hiding icons until relaunch") }
-        return orderVerified
+        let ok = lyrics.frame.minX >= expanderWindow.frame.maxX - 1
+        if !ok { log.info("♪ is left of the divider; not hiding icons") }
+        return ok
     }
 
     private func update() {

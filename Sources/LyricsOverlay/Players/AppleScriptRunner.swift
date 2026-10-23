@@ -12,13 +12,14 @@ final class AppleScriptRunner: @unchecked Sendable {
     private let queue = DispatchQueue(label: "com.nopgae.lyrics-overlay.applescript")
     private var compiled: [String: NSAppleScript] = [:]
 
-    func run(_ source: String) async -> NSAppleEventDescriptor? {
+    /// `cache: false` for scripts that embed a value (a seek position) and so never repeat.
+    func run(_ source: String, cache: Bool = true) async -> NSAppleEventDescriptor? {
         await withCheckedContinuation { cont in
-            queue.async { cont.resume(returning: self.runOnQueue(source)) }
+            queue.async { cont.resume(returning: self.runOnQueue(source, cache: cache)) }
         }
     }
 
-    private func runOnQueue(_ source: String) -> NSAppleEventDescriptor? {
+    private func runOnQueue(_ source: String, cache: Bool) -> NSAppleEventDescriptor? {
         var error: NSDictionary?
         let script: NSAppleScript
         if let cached = compiled[source] {
@@ -28,7 +29,7 @@ final class AppleScriptRunner: @unchecked Sendable {
                 log.error("AppleScript compile failed: \(String(describing: error), privacy: .public)")
                 return nil
             }
-            compiled[source] = s
+            if cache { compiled[source] = s }
             script = s
         }
         let result = script.executeAndReturnError(&error)

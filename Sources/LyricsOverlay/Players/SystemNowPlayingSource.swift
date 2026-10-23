@@ -76,6 +76,8 @@ final class SystemNowPlayingSource: MusicSource {
         p.standardError = FileHandle.nullDevice
         out.fileHandleForReading.readabilityHandler = { [weak self] h in
             let chunk = h.availableData
+            // EOF (helper exited): without this the handler keeps firing with empty data.
+            if chunk.isEmpty { h.readabilityHandler = nil; return }
             DispatchQueue.main.async { self?.received(chunk) }
         }
         p.terminationHandler = { [weak self] proc in

@@ -76,7 +76,7 @@ final class LocalFilePlayer: NSObject, MusicSource, AVAudioPlayerDelegate {
     func previous() async { player?.currentTime = 0 }
     func seek(to seconds: TimeInterval) async { player?.currentTime = seconds }
 
-    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        onFinish?()
+    nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        Task { @MainActor in self.onFinish?() }
     }
 }

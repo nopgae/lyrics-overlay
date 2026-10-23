@@ -111,7 +111,6 @@ static void readCommands(void) {
                 else if ([cmd isEqualToString:@"next"]) sendCommand(kNextTrack, nil);
                 else if ([cmd isEqualToString:@"previous"]) sendCommand(kPreviousTrack, nil);
                 else if ([cmd hasPrefix:@"seek "]) setElapsed([[cmd substringFromIndex:5] doubleValue]);
-                else if ([cmd isEqualToString:@"refresh"]) scheduleEmit();
             });
         }
         exit(0);  // stdin closed: the app is gone

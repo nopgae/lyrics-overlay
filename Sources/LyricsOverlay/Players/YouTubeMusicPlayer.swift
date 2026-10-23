@@ -85,7 +85,7 @@ final class YouTubeMusicPlayer: MusicSource {
     }
 
     /// Runs `js` in the first music.youtube.com tab of `b` and returns its string result.
-    private func runJS(_ js: String, in b: Browser) async -> String? {
+    private func runJS(_ js: String, in b: Browser, cache: Bool = true) async -> String? {
         let script = """
         if application \(appleScriptLiteral(b.name)) is not running then return ""
         tell application \(appleScriptLiteral(b.name))
@@ -99,12 +99,12 @@ final class YouTubeMusicPlayer: MusicSource {
         end tell
         return ""
         """
-        return await AppleScriptRunner.shared.run(script)?.stringValue
+        return await AppleScriptRunner.shared.run(script, cache: cache)?.stringValue
     }
 
     private func control(_ js: String) async {
         guard let b = browsers.first(where: { $0.name == lastBrowser }) else { return }
-        _ = await runJS(js, in: b)
+        _ = await runJS(js, in: b, cache: false)
     }
 
     func artwork(for snapshot: PlaybackSnapshot) async -> NSImage? {
