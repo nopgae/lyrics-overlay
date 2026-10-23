@@ -28,6 +28,8 @@ final class LyricsModel {
     private(set) var artworkPalette: [NSColor] = []
     private(set) var lyrics: [LyricLine] = []
     private(set) var currentIndex: Int?
+    /// Which page of a too-long current line the menu bar shows.
+    private(set) var menuBarPage = 0
     private(set) var lyricsStatus = "—"
     private(set) var isFetchingLyrics = false
     /// false when the lyrics' timestamps were estimated from plain text
@@ -57,7 +59,10 @@ final class LyricsModel {
     }
     /// Max characters of lyric shown in the menu bar.
     var menuBarLength: Int {
-        didSet { UserDefaults.standard.set(menuBarLength, forKey: "menuBarLength") }
+        didSet {
+            UserDefaults.standard.set(menuBarLength, forKey: "menuBarLength")
+            restartLineTimer()
+        }
     }
     var showKaraoke: Bool {
         didSet { UserDefaults.standard.set(showKaraoke, forKey: "showKaraoke") }
@@ -95,7 +100,9 @@ final class LyricsModel {
     var menuBarTitle: String? {
         guard showLyricsInMenuBar, let snapshot else { return nil }
         if let line = currentLine, !line.isEmpty, !snapshot.isPaused {
-            return line.truncated(to: menuBarLength)
+            // Long lines are shown page by page while they're sung (see restartLineTimer).
+            let pages = LyricPager.pages(line, maxLength: menuBarLength)
+            return pages[min(menuBarPage, pages.count - 1)]
         }
         let song = snapshot.artist.isEmpty ? snapshot.title : "\(snapshot.title) — \(snapshot.artist)"
         return song.truncated(to: menuBarLength)
@@ -293,21 +300,39 @@ final class LyricsModel {
         return max(0, s.position + elapsed - lyricOffset)
     }
 
-    /// Sleeps until the next line starts instead of ticking on a fixed interval.
+    /// Sleeps until the next line (or the next menu bar page of a long line) starts
+    /// instead of ticking on a fixed interval.
     private func restartLineTimer() {
         lineTimer?.cancel()
-        currentIndex = SyncEngine.index(at: position(), in: lyrics)
+        updateLine(at: position())
         guard isPlaying, !lyrics.isEmpty else { return }
         lineTimer = Task { [weak self] in
             while !Task.isCancelled {
-                guard let self else { return }
-                let pos = self.position()
-                let idx = SyncEngine.index(at: pos, in: self.lyrics)
-                if idx != self.currentIndex { self.currentIndex = idx }
-                guard let next = SyncEngine.nextTime(after: idx, in: self.lyrics) else { return }
-                try? await Task.sleep(for: .seconds(max(0.02, next - pos)))
+                guard let self, let wake = self.updateLine(at: self.position()) else { return }
+                try? await Task.sleep(for: .seconds(max(0.02, wake)))
             }
         }
+    }
+
+    /// Sets the current line and menu bar page for `pos`; returns seconds until the
+    /// next change, or nil after the last one.
+    @discardableResult
+    private func updateLine(at pos: TimeInterval) -> TimeInterval? {
+        let idx = SyncEngine.index(at: pos, in: lyrics)
+        if idx != currentIndex { currentIndex = idx }
+        let next = SyncEngine.nextTime(after: idx, in: lyrics)
+        guard let idx else {
+            if menuBarPage != 0 { menuBarPage = 0 }
+            return next.map { $0 - pos }
+        }
+        let line = lyrics[idx]
+        // The last line has no successor; give it until the song ends (or 6 s).
+        let end = next ?? max(line.time + 6, snapshot?.duration ?? 0)
+        let pageCount = LyricPager.pages(line.text, maxLength: menuBarLength).count
+        let page = LyricPager.page(at: pos - line.time, duration: end - line.time, count: pageCount)
+        if page.index != menuBarPage { menuBarPage = page.index }
+        if let pageAt = page.nextPageAt { return line.time + pageAt - pos }
+        return next.map { $0 - pos }
     }
 
     private static let ciContext = CIContext(options: [.workingColorSpace: NSNull()])

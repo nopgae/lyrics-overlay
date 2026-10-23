@@ -45,6 +45,30 @@ final class SyncEngineTests: XCTestCase {
     }
 }
 
+final class LyricPagerTests: XCTestCase {
+    func testShortLineIsOnePage() {
+        XCTAssertEqual(LyricPager.pages("Hello world", maxLength: 40), ["Hello world"])
+    }
+
+    func testSplitsAtSpaces() {
+        let pages = LyricPager.pages("I'm in love with the shape of you, we push and pull like a magnet do", maxLength: 30)
+        XCTAssertEqual(pages, ["I'm in love with the shape of", "you, we push and pull like a", "magnet do"])
+        XCTAssertTrue(pages.allSatisfy { $0.count <= 30 })
+    }
+
+    func testHardSplitsTextWithoutSpaces() {
+        XCTAssertEqual(LyricPager.pages("あいうえおかきくけこさしすせそ", maxLength: 6), ["あいうえおか", "きくけこさし", "すせそ"])
+    }
+
+    func testPageTiming() {
+        XCTAssertEqual(LyricPager.page(at: 0.5, duration: 4, count: 2).index, 0)
+        XCTAssertEqual(LyricPager.page(at: 0.5, duration: 4, count: 2).nextPageAt, 2)
+        XCTAssertEqual(LyricPager.page(at: 2.1, duration: 4, count: 2).index, 1)
+        XCTAssertNil(LyricPager.page(at: 2.1, duration: 4, count: 2).nextPageAt)
+        XCTAssertEqual(LyricPager.page(at: 99, duration: 4, count: 3).index, 2)
+    }
+}
+
 final class TitleCleanerTests: XCTestCase {
     func testTitle() {
         XCTAssertEqual(TitleCleaner.title("Dynamite (Official MV)"), "Dynamite")

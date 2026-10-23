@@ -34,7 +34,7 @@ private struct GeneralSettings: View {
                 HStack {
                     Slider(value: Binding(get: { Double(model.menuBarLength) },
                                           set: { model.menuBarLength = Int(($0 / 5).rounded() * 5) }),
-                           in: 20...80)
+                           in: 20...120)
                     Text("\(model.menuBarLength) characters")
                         .monospacedDigit()
                         .foregroundStyle(.secondary)

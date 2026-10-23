@@ -40,9 +40,9 @@ struct MenuBarWindowView: View {
                 SliderRow(systemImage: "textformat.size",
                           value: Binding(get: { Double(model.menuBarLength) },
                                          set: { model.menuBarLength = Int($0) }),
-                          range: 20...80, step: 5,
+                          range: 20...120, step: 5,
                           label: "\(model.menuBarLength)",
-                          help: "Characters shown in the menu bar")
+                          help: "Characters shown in the menu bar at once; longer lines are shown in parts")
 
                 Picker("Player", selection: $model.sourceOverride) {
                     Text("Auto").tag(SourceID?.none)
