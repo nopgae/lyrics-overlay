@@ -126,6 +126,7 @@ final class NotchPanelController {
     let panel: NotchPanel
     private var geometry: NotchGeometry?
     private var statusItemHidden = false
+    private var lastReading = false
     private var visible = false
     private var checkTimer: Timer?
 
@@ -182,7 +183,10 @@ final class NotchPanelController {
         let hidden = windows.isEmpty || windows.allSatisfy { w in
             w.screen == nil || w.frame.maxX <= 0 || !w.occlusionState.contains(.visible)
         }
-        if hidden != statusItemHidden {
+        // Act only on two readings in a row: a single odd one (♪ not laid out yet at
+        // launch, a Space switch) otherwise flashes the panel for a check interval.
+        defer { lastReading = hidden }
+        if hidden == lastReading, hidden != statusItemHidden {
             statusItemHidden = hidden
             log.info("Menu bar item hidden: \(hidden), frames: \(windows.map { NSStringFromRect($0.frame) }, privacy: .public)")
             update()
