@@ -6,6 +6,9 @@ import SwiftUI
 final class FullLyricsWindowController: NSObject, NSWindowDelegate {
     let window: NSWindow
     private let model: LyricsModel
+    /// Set while leaving full screen on the way to closing; the close happens once
+    /// the exit animation is done, so no empty full-screen Space is left behind.
+    private var closeAfterFullScreenExit = false
 
     init(model: LyricsModel) {
         self.model = model
@@ -31,9 +34,30 @@ final class FullLyricsWindowController: NSObject, NSWindowDelegate {
         // Menu bar (LSUIElement) apps must activate themselves to bring a window forward.
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
+        model.isFullLyricsOpen = true
+    }
+
+    func close() {
+        if window.styleMask.contains(.fullScreen) {
+            closeAfterFullScreenExit = true
+            window.toggleFullScreen(nil)
+        } else {
+            window.close()
+        }
+    }
+
+    func toggle() {
+        if window.isVisible { close() } else { show() }
+    }
+
+    func windowDidExitFullScreen(_ notification: Notification) {
+        if closeAfterFullScreenExit {
+            closeAfterFullScreenExit = false
+            window.close()
+        }
     }
 
     func windowWillClose(_ notification: Notification) {
-        if window.styleMask.contains(.fullScreen) { window.toggleFullScreen(nil) }
+        model.isFullLyricsOpen = false
     }
 }

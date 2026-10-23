@@ -29,6 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         karaoke = KaraokePanelController(model: model)
         notch = NotchPanelController(model: model)
         model.showFullLyrics = { [weak self] in self?.fullLyrics.show() }
+        model.toggleFullLyrics = { [weak self] in self?.fullLyrics.toggle() }
         model.showSettings = { [weak self] in self?.settings.show() }
         model.resetKaraokePosition = { [weak self] in self?.karaoke?.moveToDefaultPosition() }
         #if DEBUG

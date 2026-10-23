@@ -19,8 +19,9 @@ struct MenuBarWindowView: View {
                 ToggleTile(title: "Karaoke", systemImage: "dock.rectangle", isOn: model.showKaraoke) {
                     model.showKaraoke.toggle()
                 }
-                ToggleTile(title: "Lyrics", systemImage: "arrow.up.left.and.arrow.down.right", isOn: false) {
-                    model.showFullLyrics()
+                ToggleTile(title: "Lyrics", systemImage: "arrow.up.left.and.arrow.down.right",
+                           isOn: model.isFullLyricsOpen) {
+                    model.toggleFullLyrics()
                 }
                 ToggleTile(title: "Refresh", systemImage: "arrow.clockwise", isOn: false,
                            isEnabled: model.snapshot != nil && !model.isFetchingLyrics) {

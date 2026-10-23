@@ -73,8 +73,12 @@ final class LyricsModel {
         didSet { UserDefaults.standard.set(karaokeTint, forKey: "karaokeTint") }
     }
 
+    /// Whether the full lyrics window is open (kept up to date by its controller).
+    var isFullLyricsOpen = false
+
     // Window actions; set by AppDelegate, which owns the windows.
     @ObservationIgnored var showFullLyrics: () -> Void = {}
+    @ObservationIgnored var toggleFullLyrics: () -> Void = {}
     @ObservationIgnored var showSettings: () -> Void = {}
     @ObservationIgnored var resetKaraokePosition: () -> Void = {}
 
