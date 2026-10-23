@@ -71,12 +71,13 @@ final class LyricsModel {
         didSet { UserDefaults.standard.set(Double(karaokeFontSize), forKey: "karaokeFontSize") }
     }
     /// Bartender-style hiding of the menu bar icons left of ♪ (see MenuBarDividerController).
-    var hideIconsWhilePlaying: Bool {
-        didSet { UserDefaults.standard.set(hideIconsWhilePlaying, forKey: "hideIconsWhilePlaying") }
+    // (Both keep their old UserDefaults keys so existing settings carry over.)
+    var iconHidingEnabled: Bool {
+        didSet { UserDefaults.standard.set(iconHidingEnabled, forKey: "hideIconsWhilePlaying") }
     }
-    /// When nothing is playing: whether the ‹ toggle has the icons (and ♪) hidden.
-    var iconsHiddenWhenIdle: Bool {
-        didSet { UserDefaults.standard.set(iconsHiddenWhenIdle, forKey: "iconsHiddenWhenIdle") }
+    /// Whether the ‹ › toggle has the icons hidden; only the toggle changes it.
+    var iconsHidden: Bool {
+        didSet { UserDefaults.standard.set(iconsHidden, forKey: "iconsHiddenWhenIdle") }
     }
     var notchMode: NotchMode {
         didSet { UserDefaults.standard.set(notchMode.rawValue, forKey: "notchMode") }
@@ -88,8 +89,6 @@ final class LyricsModel {
 
     /// Whether the full lyrics window is open (kept up to date by its controller).
     var isFullLyricsOpen = false
-    /// Whether the menu bar window (the status item's popover) is showing.
-    var isMenuWindowOpen = false
 
     // Window actions; set by AppDelegate, which owns the windows.
     @ObservationIgnored var showFullLyrics: () -> Void = {}
@@ -109,10 +108,9 @@ final class LyricsModel {
     /// Text for the status item, or nil to show just the icon.
     var menuBarTitle: String? {
         guard showLyricsInMenuBar, let snapshot else { return nil }
-        // While hidden icons are back (menu window open) or playback is paused, the
-        // menu bar is crowded — icons beside the notch end up behind it — so keep the
-        // status item down to the ♪ icon.
-        if hideIconsWhilePlaying && (isMenuWindowOpen || snapshot.isPaused) { return nil }
+        // While the toggle shows the hidden icons the menu bar is crowded — icons beside
+        // the notch end up behind it — so keep the status item down to the ♪ icon.
+        if iconHidingEnabled && !iconsHidden { return nil }
         if let line = currentLine, !line.isEmpty, !snapshot.isPaused {
             // Long lines are shown page by page while they're sung (see restartLineTimer).
             let pages = LyricPager.pages(line, maxLength: menuBarLength)
@@ -154,8 +152,8 @@ final class LyricsModel {
         showKaraoke = d.object(forKey: "showKaraoke") as? Bool ?? true
         karaokeFontSize = CGFloat(d.object(forKey: "karaokeFontSize") as? Double ?? 30)
         karaokeTint = d.object(forKey: "karaokeTint") as? Double ?? 0.35
-        hideIconsWhilePlaying = d.object(forKey: "hideIconsWhilePlaying") as? Bool ?? true
-        iconsHiddenWhenIdle = d.object(forKey: "iconsHiddenWhenIdle") as? Bool ?? true
+        iconHidingEnabled = d.object(forKey: "hideIconsWhilePlaying") as? Bool ?? true
+        iconsHidden = d.object(forKey: "iconsHiddenWhenIdle") as? Bool ?? true
         notchMode = d.string(forKey: "notchMode").flatMap(NotchMode.init(rawValue:)) ?? .auto
         start()
     }

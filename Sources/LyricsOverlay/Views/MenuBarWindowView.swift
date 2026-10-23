@@ -76,9 +76,6 @@ struct MenuBarWindowView: View {
         }
         .padding(16)
         .frame(width: 320)
-        // Lets the divider bring hidden icons back while this window is open.
-        .onAppear { model.isMenuWindowOpen = true }
-        .onDisappear { model.isMenuWindowOpen = false }
     }
 }
 

@@ -9,9 +9,7 @@ import CoreGraphics
 /// The expander has no image; collapsing it makes it 10,000 pt wide, which pushes
 /// every status item to its left off screen. ♪ always stays.
 ///
-/// - Playing: icons hidden, the toggle has no width. Clicking ♪ opens its window and
-///   reveals the icons until it closes.
-/// - Not playing: ‹ (icons hidden) / › (icons shown) toggles them.
+/// Only the toggle decides: ‹ (icons hidden) / › (icons shown). Playback doesn't.
 ///
 /// Nothing is ever removed from the menu bar (isVisible = false / isInserted = false)
 /// except the expander when re-placing it: macOS forgets a removed item's position.
@@ -78,7 +76,7 @@ final class MenuBarDividerController: NSObject {
     }
 
     @objc private func toggleClicked() {
-        model.iconsHiddenWhenIdle.toggle()
+        model.iconsHidden.toggle()
     }
 
     /// The MenuBarExtra's (♪) status item windows; MenuBarExtra doesn't expose the item.
@@ -153,24 +151,22 @@ final class MenuBarDividerController: NSObject {
 
     private func observe() {
         withObservationTracking {
-            _ = model.hideIconsWhilePlaying
-            _ = model.isPlaying
-            _ = model.isMenuWindowOpen
-            _ = model.iconsHiddenWhenIdle
+            _ = model.iconHidingEnabled
+            _ = model.iconsHidden
         } onChange: { [weak self] in
-            Task { @MainActor in
-                self?.update()
-                self?.observe()
-            }
+            // observe() re-registers and runs update() itself.
+            Task { @MainActor in self?.observe() }
         }
         update()
     }
 
     /// ♪ can sit left of the expander (first launch, before its position was stored, or
-    /// after a ⌘-drag); collapsing then would hide ♪ too. Checked on every update, so a
-    /// collapsed expander that swallowed ♪ opens again.
+    /// after a ⌘-drag); collapsing then would hide ♪ too. Checked each time the expander
+    /// is about to collapse; an already collapsed one is left alone, since its window
+    /// frame is mid-layout (it grows rightwards over ♪ before the bar shifts it left).
     private var canCollapse: Bool {
-        guard let expanderWindow = expander?.button?.window, let lyrics = lyricsItemWindow else { return false }
+        guard let expander, let expanderWindow = expander.button?.window, let lyrics = lyricsItemWindow else { return false }
+        if expander.length == Self.collapsedLength { return true }
         let ok = lyrics.frame.minX >= expanderWindow.frame.maxX - 1
         if !ok { log.info("♪ is left of the divider; not hiding icons") }
         return ok
@@ -178,17 +174,12 @@ final class MenuBarDividerController: NSObject {
 
     private func update() {
         guard let expander, let toggle else { return }
-        let enabled = model.hideIconsWhilePlaying
-        let playing = model.isPlaying
+        let showToggle = model.iconHidingEnabled
+        let hidden = model.iconsHidden
+        expander.length = showToggle && hidden && canCollapse ? Self.collapsedLength : 0
 
-        let hide = enabled && (playing ? !model.isMenuWindowOpen : model.iconsHiddenWhenIdle)
-        expander.length = hide && canCollapse ? Self.collapsedLength : 0
-
-        // The toggle is only there when nothing is playing; otherwise it takes no space.
-        let showToggle = enabled && !playing
         toggle.length = showToggle ? NSStatusItem.variableLength : 0
         toggle.button?.isEnabled = showToggle
-        let hidden = model.iconsHiddenWhenIdle
         let image = showToggle
             ? NSImage(systemSymbolName: hidden ? "chevron.compact.left" : "chevron.compact.right",
                       accessibilityDescription: hidden ? "Show menu bar icons" : "Hide menu bar icons")

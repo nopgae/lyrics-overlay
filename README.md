@@ -34,6 +34,7 @@ macOS 메뉴바 가사 앱. 지금 재생 중인 곡의 싱크 가사를 메뉴�
 
 ```bash
 scripts/build.sh               # build/Lyrics Overlay.app (release)
+scripts/dmg.sh                 # build/Lyrics-Overlay-<버전>.dmg (Applications로 드래그해 설치)
 scripts/run.sh                 # debug 빌드 후 실행 + 로그
 swift test                     # LyricsCore 단위 테스트 (LIVE=1 이면 실제 LRCLIB 호출 포함)
 scripts/snapshot.sh OUT        # 데모 데이터로 각 화면 PNG 캡처 (화면 기록 권한 필요)

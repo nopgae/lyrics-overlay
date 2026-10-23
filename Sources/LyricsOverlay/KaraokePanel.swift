@@ -55,10 +55,8 @@ final class KaraokePanelController {
         withObservationTracking {
             _ = shouldShow
         } onChange: { [weak self] in
-            Task { @MainActor in
-                self?.update()
-                self?.observe()
-            }
+            // observe() re-registers and runs update() itself.
+            Task { @MainActor in self?.observe() }
         }
         update()
     }
