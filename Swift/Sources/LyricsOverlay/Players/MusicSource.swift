@@ -5,14 +5,19 @@ enum SourceID: String, CaseIterable, Identifiable {
     case appleMusic = "music_app"
     case spotify = "spotify"
     case youtubeMusic = "youtube_music"
+    case localFile = "local_file"
 
     var id: String { rawValue }
+
+    /// Players offered in the source pickers (a local file is opened explicitly instead).
+    static let pickable: [SourceID] = [.appleMusic, .spotify, .youtubeMusic]
 
     var displayName: String {
         switch self {
         case .appleMusic: "Music"
         case .spotify: "Spotify"
         case .youtubeMusic: "YouTube Music"
+        case .localFile: "Local File"
         }
     }
 
@@ -20,6 +25,7 @@ enum SourceID: String, CaseIterable, Identifiable {
 
     /// Music.app and Spotify post a distributed notification on every play, pause
     /// and track change; browsers don't.
+    /// (A local file is played in-process, so its position never drifts either.)
     var notifiesChanges: Bool { self != .youtubeMusic }
 }
 

@@ -1,5 +1,6 @@
 import LyricsCore
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Full-window lyrics: moving artwork-colored background, now playing on the left,
 /// scrolling lyrics on the right. Click a line to jump there.
@@ -21,6 +22,13 @@ struct FullLyricsView: View {
         }
         .background { MeshBackground(palette: model.artworkPalette) }
         .environment(\.colorScheme, .dark)
+        .dropDestination(for: URL.self) { urls, _ in
+            guard let url = urls.first(where: { u in
+                LocalFilePlayer.audioTypes.contains { UTType(filenameExtension: u.pathExtension)?.conforms(to: $0) == true }
+            }) else { return false }
+            model.openFile(url)
+            return true
+        }
         .focusable()
         .focusEffectDisabled()
         .onKeyPress(.space) {

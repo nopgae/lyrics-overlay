@@ -9,6 +9,24 @@ final class LRCParserTests: XCTestCase {
     }
 }
 
+final class LRCFileTests: XCTestCase {
+    func testLoadsCP949KoreanFile() throws {
+        let cp949 = String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(
+            CFStringEncoding(CFStringEncodings.dosKorean.rawValue)))
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".lrc")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try XCTUnwrap("[00:01.00]안녕하세요\n[00:03.50]가사".data(using: cp949)).write(to: url)
+        XCTAssertEqual(LRCParser.load(contentsOf: url)?.map(\.text), ["안녕하세요", "가사"])
+    }
+
+    func testLoadsUTF8File() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".lrc")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try Data("[00:02.00]Hello 世界".utf8).write(to: url)
+        XCTAssertEqual(LRCParser.load(contentsOf: url)?.first?.text, "Hello 世界")
+    }
+}
+
 final class SyncEngineTests: XCTestCase {
     let lines = [LyricLine(time: 10, text: "a"), LyricLine(time: 20, text: "b"), LyricLine(time: 30, text: "c")]
 

@@ -27,7 +27,7 @@ private struct GeneralSettings: View {
         Form {
             Picker("Music player", selection: $model.sourceOverride) {
                 Text("Auto-detect").tag(SourceID?.none)
-                ForEach(SourceID.allCases) { Text($0.displayName).tag(SourceID?.some($0)) }
+                ForEach(SourceID.pickable) { Text($0.displayName).tag(SourceID?.some($0)) }
             }
             Toggle("Show lyrics in the menu bar", isOn: $model.showLyricsInMenuBar)
             LabeledContent("Menu bar length") {

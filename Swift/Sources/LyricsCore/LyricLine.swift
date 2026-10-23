@@ -33,4 +33,21 @@ public enum LRCParser {
         }
         return lines.sorted { $0.time < $1.time }
     }
+
+    /// Reads an .lrc file, trying UTF-8 first and then the legacy encodings
+    /// Korean/Chinese/Japanese LRC files are commonly saved in.
+    public static func load(contentsOf url: URL) -> [LyricLine]? {
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        let legacy: [CFStringEncodings] = [.dosKorean, .GB_18030_2000, .shiftJIS]
+        let encodings = [String.Encoding.utf8]
+            + legacy.map { String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(CFStringEncoding($0.rawValue))) }
+            + [.isoLatin1]
+        for encoding in encodings {
+            if let text = String(data: data, encoding: encoding) {
+                let lines = parse(text)
+                return lines.isEmpty ? nil : lines
+            }
+        }
+        return nil
+    }
 }

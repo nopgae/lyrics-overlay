@@ -45,7 +45,7 @@ struct MenuBarWindowView: View {
 
                 Picker("Player", selection: $model.sourceOverride) {
                     Text("Auto").tag(SourceID?.none)
-                    ForEach(SourceID.allCases) { Text($0.shortName).tag(SourceID?.some($0)) }
+                    ForEach(SourceID.pickable) { Text($0.shortName).tag(SourceID?.some($0)) }
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
@@ -60,6 +60,10 @@ struct MenuBarWindowView: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
+                Button { model.openFilePanel() } label: { Image(systemName: "folder") }
+                    .buttonStyle(.borderless)
+                    .keyboardShortcut("o")
+                    .help("Open Audio File…")
                 Button { model.showSettings() } label: { Image(systemName: "gearshape") }
                     .buttonStyle(.borderless)
                     .keyboardShortcut(",")
@@ -97,10 +101,19 @@ private struct NowPlayingHeader: View {
                 if let s = model.snapshot {
                     Text(s.title).font(.headline).lineLimit(1)
                     Text(s.artist).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
-                    Label(s.isPaused ? "Paused · \(s.source.displayName)" : s.source.displayName,
-                          systemImage: s.isPaused ? "pause.circle" : "waveform")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
+                    HStack(spacing: 6) {
+                        Label(s.isPaused ? "Paused · \(s.source.displayName)" : s.source.displayName,
+                              systemImage: s.isPaused ? "pause.circle" : "waveform")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                        if s.source == .localFile {
+                            Button { model.ejectLocalFile() } label: {
+                                Image(systemName: "eject.fill").font(.caption)
+                            }
+                            .buttonStyle(.borderless)
+                            .help("Close file and follow your music apps again")
+                        }
+                    }
                 } else {
                     Text("Not Playing").font(.headline)
                     Text("Play something in Music, Spotify or YouTube Music")

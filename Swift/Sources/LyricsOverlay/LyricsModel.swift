@@ -2,6 +2,7 @@ import AppKit
 import CoreImage
 import LyricsCore
 import Observation
+import UniformTypeIdentifiers
 
 /// App state: which track is playing, its lyrics, and the current line.
 ///
@@ -95,7 +96,8 @@ final class LyricsModel {
 
     // MARK: Private
 
-    private let sources: [MusicSource] = [AppleMusicPlayer(), SpotifyPlayer(), YouTubeMusicPlayer()]
+    private let localPlayer = LocalFilePlayer()
+    private let sources: [MusicSource]
     private let fetcher = LyricsFetcher(
         cacheDirectory: FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?
             .appendingPathComponent("com.nopgae.lyrics-overlay/lyrics", isDirectory: true)
@@ -114,6 +116,7 @@ final class LyricsModel {
     private static let resyncInterval: TimeInterval = 4
 
     init() {
+        sources = [AppleMusicPlayer(), SpotifyPlayer(), YouTubeMusicPlayer(), localPlayer]
         let d = UserDefaults.standard
         lyricOffset = d.object(forKey: "lyricOffset") as? Double ?? Self.defaultLyricOffset
         sourceOverride = d.string(forKey: "sourceOverride").flatMap(SourceID.init(rawValue:))
@@ -126,6 +129,9 @@ final class LyricsModel {
     }
 
     private func start() {
+        localPlayer.onFinish = { [weak self] in
+            MainActor.assumeIsolated { self?.requestPoll() }
+        }
         let dnc = DistributedNotificationCenter.default()
         for name in ["com.apple.Music.playerInfo", "com.spotify.client.PlaybackStateChanged"] {
             observers.append(dnc.addObserver(forName: .init(name), object: nil, queue: .main) { [weak self] _ in
@@ -167,13 +173,17 @@ final class LyricsModel {
         }
     }
 
-    /// A playing source beats a paused one; ties go Music → Spotify → YouTube Music.
+    /// An opened local file wins. Otherwise a playing source beats a paused one;
+    /// ties go Music → Spotify → YouTube Music.
     private func pollSources() async -> PlaybackSnapshot? {
+        if localPlayer.isLoaded {
+            return await localPlayer.snapshot()
+        }
         if let only = sourceOverride {
             return await sources.first { $0.id == only }?.snapshot()
         }
         var paused: PlaybackSnapshot?
-        for source in sources {
+        for source in sources where source.id != .localFile {
             guard let s = await source.snapshot() else { continue }
             if !s.isPaused { return s }
             paused = paused ?? s
@@ -206,7 +216,16 @@ final class LyricsModel {
         currentIndex = nil
         artwork = nil
         let query = TrackQuery(title: s.title, artist: s.artist, album: s.album, duration: s.duration)
-        fetchLyrics(query)
+        if s.source == .localFile, let sidecar = localPlayer.sidecarLyrics {
+            fetchTask?.cancel()
+            lastQuery = query  // Refresh still searches online
+            isFetchingLyrics = false
+            lyrics = sidecar
+            lyricsAreSynced = true
+            lyricsStatus = "Local LRC · \(sidecar.count) lines"
+        } else {
+            fetchLyrics(query)
+        }
 
         let source = sources.first { $0.id == s.source }
         let key = s.trackKey
@@ -328,6 +347,36 @@ final class LyricsModel {
         restartLineTimer()
     }
     #endif
+
+    // MARK: - Local files
+
+    func openFilePanel() {
+        NSApp.activate(ignoringOtherApps: true)
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = LocalFilePlayer.audioTypes
+        panel.message = "Choose a song. A .lrc file with the same name is used for lyrics."
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        openFile(url)
+    }
+
+    func openFile(_ url: URL) {
+        Task {
+            do {
+                try await localPlayer.load(url)
+                localPlayer.play()
+                requestPoll()
+            } catch {
+                log.error("Couldn't open \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                lyricsStatus = "Couldn't play \(url.lastPathComponent)"
+            }
+        }
+    }
+
+    /// Closes the local file and goes back to watching the music apps.
+    func ejectLocalFile() {
+        localPlayer.eject()
+        requestPoll()
+    }
 
     // MARK: - Transport
 
