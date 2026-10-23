@@ -70,6 +70,10 @@ final class LyricsModel {
     var karaokeFontSize: CGFloat {
         didSet { UserDefaults.standard.set(Double(karaokeFontSize), forKey: "karaokeFontSize") }
     }
+    /// Push the icons left of the divider off the menu bar while lyrics play.
+    var hideIconsWhilePlaying: Bool {
+        didSet { UserDefaults.standard.set(hideIconsWhilePlaying, forKey: "hideIconsWhilePlaying") }
+    }
     var notchMode: NotchMode {
         didSet { UserDefaults.standard.set(notchMode.rawValue, forKey: "notchMode") }
     }
@@ -80,6 +84,8 @@ final class LyricsModel {
 
     /// Whether the full lyrics window is open (kept up to date by its controller).
     var isFullLyricsOpen = false
+    /// Whether the menu bar window (the status item's popover) is showing.
+    var isMenuWindowOpen = false
 
     // Window actions; set by AppDelegate, which owns the windows.
     @ObservationIgnored var showFullLyrics: () -> Void = {}
@@ -140,6 +146,7 @@ final class LyricsModel {
         showKaraoke = d.object(forKey: "showKaraoke") as? Bool ?? true
         karaokeFontSize = CGFloat(d.object(forKey: "karaokeFontSize") as? Double ?? 30)
         karaokeTint = d.object(forKey: "karaokeTint") as? Double ?? 0.35
+        hideIconsWhilePlaying = d.object(forKey: "hideIconsWhilePlaying") as? Bool ?? true
         notchMode = d.string(forKey: "notchMode").flatMap(NotchMode.init(rawValue:)) ?? .auto
         start()
     }

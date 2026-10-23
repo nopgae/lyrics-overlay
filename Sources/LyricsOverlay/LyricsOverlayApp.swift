@@ -21,6 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let model = LyricsModel()
     private var karaoke: KaraokePanelController?
     private var notch: NotchPanelController?
+    private var divider: MenuBarDividerController?
     private(set) lazy var fullLyrics = FullLyricsWindowController(model: model)
     private lazy var settings = SettingsWindowController(model: model)
 
@@ -28,6 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Panels can only be created once NSApp is up, so not in App.init.
         karaoke = KaraokePanelController(model: model)
         notch = NotchPanelController(model: model)
+        divider = MenuBarDividerController(model: model)
         model.showFullLyrics = { [weak self] in self?.fullLyrics.show() }
         model.toggleFullLyrics = { [weak self] in self?.fullLyrics.toggle() }
         model.showSettings = { [weak self] in self?.settings.show() }

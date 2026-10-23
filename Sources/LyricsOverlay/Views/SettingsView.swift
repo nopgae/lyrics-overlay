@@ -42,6 +42,12 @@ private struct GeneralSettings: View {
                 }
             }
             .disabled(!model.showLyricsInMenuBar)
+            VStack(alignment: .leading, spacing: 4) {
+                Toggle("Hide other menu bar icons while lyrics play", isOn: $model.hideIconsWhilePlaying)
+                Text("Icons left of the ‹ mark are hidden; ⌘-drag icons there to choose. Click the lyrics to bring them back.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             Picker("Lyrics under the notch", selection: $model.notchMode) {
                 ForEach(NotchMode.allCases) { Text($0.title).tag($0) }
             }
