@@ -1,0 +1,57 @@
+#if DEBUG
+import LyricsCore
+import SwiftUI
+
+/// Debug-only: `LYRICS_SNAPSHOT=/path/windowid.txt` shows the menu bar window as a
+/// regular on-screen window, writes its window number to that file, and quits after
+/// a few seconds, so `screencapture -l <id>` can grab it. `LYRICS_DEMO=1` fills it
+/// with a fake track; `LYRICS_DARK=0|1` forces the appearance.
+enum DebugSnapshot {
+    @MainActor
+    static func runIfRequested(model: LyricsModel) {
+        let env = ProcessInfo.processInfo.environment
+        guard let path = env["LYRICS_SNAPSHOT"] else { return }
+        if env["LYRICS_DEMO"] == "1" { model.loadDemo() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            let host = NSHostingView(rootView: MenuBarWindowView().environment(model))
+            let size = host.fittingSize
+            let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: size.width, height: size.height),
+                                  styleMask: [.borderless], backing: .buffered, defer: false)
+            if let dark = env["LYRICS_DARK"] {
+                window.appearance = NSAppearance(named: dark == "1" ? .darkAqua : .aqua)
+            }
+            // Same material the real MenuBarExtra window uses
+            let blur = NSVisualEffectView()
+            blur.material = .popover
+            blur.state = .active
+            blur.blendingMode = .behindWindow
+            host.translatesAutoresizingMaskIntoConstraints = false
+            blur.addSubview(host)
+            NSLayoutConstraint.activate([
+                host.leadingAnchor.constraint(equalTo: blur.leadingAnchor),
+                host.trailingAnchor.constraint(equalTo: blur.trailingAnchor),
+                host.topAnchor.constraint(equalTo: blur.topAnchor),
+                host.bottomAnchor.constraint(equalTo: blur.bottomAnchor),
+            ])
+            window.contentView = blur
+            window.level = .floating
+            window.orderFrontRegardless()
+            try? String(window.windowNumber).write(toFile: path, atomically: true, encoding: .utf8)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { exit(0) }
+        }
+    }
+}
+
+extension LyricsModel {
+    func loadDemo() {
+        debugSet(
+            snapshot: PlaybackSnapshot(source: .youtubeMusic, title: "Hype Boy", artist: "NewJeans", album: "",
+                                       position: 31, duration: 179, isPaused: false, fetchedAt: Date(), artworkURL: nil),
+            lyrics: [LyricLine(time: 28, text: "Baby, got me looking so crazy"),
+                     LyricLine(time: 31, text: "빠져버리는 daydream"),
+                     LyricLine(time: 34, text: "Got me feeling you 너도 말해줄래")],
+            status: "LRCLIB · 51 lines"
+        )
+    }
+}
+#endif
