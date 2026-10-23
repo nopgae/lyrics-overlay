@@ -2,9 +2,9 @@ import AppKit
 import CoreGraphics
 
 /// Bartender-style hiding of other menu bar icons, with two extra status items
-/// around the lyrics (♪) item:
+/// left of the lyrics (♪) item:
 ///
-///     [icons to hide] [expander] [♪] [‹ toggle] [system icons]
+///     [icons to hide] [expander] [‹ toggle] [♪] [system icons]
 ///
 /// The expander has no image; collapsing it makes it 10,000 pt wide, which pushes
 /// every status item to its left off screen. ♪ always stays.
@@ -44,9 +44,9 @@ final class MenuBarDividerController: NSObject {
     /// New status items appear left of *all* others, and an item with no stored
     /// position (like the MenuBarExtra's) is put leftmost too. Store preferred
     /// positions — distance from the screen's right edge, larger = further left —
-    /// around ♪: expander just left, toggle just right. Measured only while ♪ is on
-    /// screen, and stored values are never overwritten; after that macOS remembers
-    /// wherever the user ⌘-drags them.
+    /// left of ♪: the toggle right next to it, the expander next to the toggle.
+    /// Measured only while ♪ is on screen, and stored values are never overwritten;
+    /// after that macOS remembers wherever the user ⌘-drags them.
     private func createItems() {
         let d = UserDefaults.standard
         if let window = lyricsItemWindow, let screen = window.screen,
@@ -57,9 +57,16 @@ final class MenuBarDividerController: NSObject {
                 ?? Double(screen.frame.maxX - window.frame.maxX)
             for (key, value) in [(lyricsKey, lyricsPosition),
                                  (Self.positionKey(Self.expanderName), lyricsPosition + 1),
-                                 (Self.positionKey(Self.toggleName), lyricsPosition - 1)]
+                                 (Self.positionKey(Self.toggleName), lyricsPosition + 0.5)]
             where d.object(forKey: key) == nil {
                 d.set(value, forKey: key)
+            }
+            // The toggle used to sit right of ♪; move it once to between the expander and ♪.
+            if !d.bool(forKey: "toggleLeftOfLyrics") {
+                let expanderPosition = d.object(forKey: Self.positionKey(Self.expanderName)) as? Double
+                    ?? lyricsPosition + 1
+                d.set(lyricsPosition + (expanderPosition - lyricsPosition) / 2, forKey: Self.positionKey(Self.toggleName))
+                d.set(true, forKey: "toggleLeftOfLyrics")
             }
             model.menuBarPlacementDone = true
         }
@@ -102,7 +109,8 @@ final class MenuBarDividerController: NSObject {
 
     /// Apps whose status item has no stored position (YT Music.app, for one) can be
     /// slotted between the expander and ♪, where they'd never hide. If that happens,
-    /// move the expander's stored position halfway towards ♪'s and re-add it.
+    /// move the expander's stored position halfway towards the toggle's (its right
+    /// neighbour) and re-add it.
     private func scheduleAdjacencyCheck() {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in self?.checkAdjacency() }
     }
@@ -112,12 +120,15 @@ final class MenuBarDividerController: NSObject {
               let lyrics = lyricsItemWindow, let screen = lyrics.screen,
               let lyricsName = Self.statusItem(of: lyrics)?.autosaveName else { return }
         let gapStart = expanderWindow.frame.maxX, gapEnd = lyrics.frame.minX
-        guard gapEnd - gapStart > 2, Self.otherStatusWindows(in: gapStart...gapEnd, screen: screen) else { return }
+        let ours = [toggle?.button?.window?.frame].compactMap { $0 }
+        guard gapEnd - gapStart > 2,
+              Self.otherStatusWindows(in: gapStart...gapEnd, excluding: ours, screen: screen) else { return }
 
         let d = UserDefaults.standard
         let lyricsPosition = d.double(forKey: Self.positionKey(lyricsName))
-        let current = d.object(forKey: Self.positionKey(Self.expanderName)) as? Double ?? lyricsPosition + 1
-        let closer = lyricsPosition + (current - lyricsPosition) / 2
+        let anchor = d.object(forKey: Self.positionKey(Self.toggleName)) as? Double ?? lyricsPosition
+        let current = d.object(forKey: Self.positionKey(Self.expanderName)) as? Double ?? anchor + 1
+        let closer = anchor + (current - anchor) / 2
         placementAttempts += 1
         log.info("Icon between divider and ♪; moving divider \(current) → \(closer)")
         NSStatusBar.system.removeStatusItem(expander)
@@ -128,19 +139,21 @@ final class MenuBarDividerController: NSObject {
         scheduleAdjacencyCheck()
     }
 
-    /// Whether another app's status item window (menu bar level) lies within `range`
-    /// (AppKit x coordinates). Window bounds need no Screen Recording permission.
-    private static func otherStatusWindows(in range: ClosedRange<CGFloat>, screen: NSScreen) -> Bool {
+    /// Whether another status item window (menu bar level) lies within `range` (AppKit
+    /// x coordinates). On macOS 26 every status item window is owned by Control Center,
+    /// so our own (`excluding`) are told apart by frame. Bounds need no Screen
+    /// Recording permission.
+    private static func otherStatusWindows(in range: ClosedRange<CGFloat>, excluding ours: [NSRect],
+                                           screen: NSScreen) -> Bool {
         guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] else {
             return false
         }
-        let ownPID = Int(ProcessInfo.processInfo.processIdentifier)
         return list.contains { w in
             guard (w[kCGWindowLayer as String] as? Int) == Int(CGWindowLevelForKey(.statusWindow)),
-                  (w[kCGWindowOwnerPID as String] as? Int) != ownPID,
                   let b = w[kCGWindowBounds as String] as? [String: CGFloat],
-                  let x = b["X"], let width = b["Width"], let y = b["Y"], y < 50 else { return false }
-            return x >= range.lowerBound - 1 && x + width <= range.upperBound + 1 && width > 4
+                  let x = b["X"], let width = b["Width"], let y = b["Y"], y < 50, width > 4 else { return false }
+            let isOurs = ours.contains { abs($0.minX - x) < 1 && abs($0.width - width) < 1 }
+            return !isOurs && x >= range.lowerBound - 1 && x + width <= range.upperBound + 1
         }
     }
 
