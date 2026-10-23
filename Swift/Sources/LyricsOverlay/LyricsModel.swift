@@ -1,4 +1,5 @@
 import AppKit
+import CoreImage
 import LyricsCore
 import Observation
 
@@ -14,7 +15,11 @@ final class LyricsModel {
     // MARK: Published state
 
     private(set) var snapshot: PlaybackSnapshot?
-    private(set) var artwork: NSImage?
+    private(set) var artwork: NSImage? {
+        didSet { artworkColor = artwork.flatMap(Self.averageColor) }
+    }
+    /// Average artwork color, used to tint the karaoke strip.
+    private(set) var artworkColor: NSColor?
     private(set) var lyrics: [LyricLine] = []
     private(set) var currentIndex: Int?
     private(set) var lyricsStatus = "—"
@@ -45,6 +50,16 @@ final class LyricsModel {
     /// Max characters of lyric shown in the menu bar.
     var menuBarLength: Int {
         didSet { UserDefaults.standard.set(menuBarLength, forKey: "menuBarLength") }
+    }
+    var showKaraoke: Bool {
+        didSet { UserDefaults.standard.set(showKaraoke, forKey: "showKaraoke") }
+    }
+    var karaokeFontSize: CGFloat {
+        didSet { UserDefaults.standard.set(Double(karaokeFontSize), forKey: "karaokeFontSize") }
+    }
+    /// How strongly the artwork color tints the karaoke background (0…1).
+    var karaokeTint: Double {
+        didSet { UserDefaults.standard.set(karaokeTint, forKey: "karaokeTint") }
     }
 
     // MARK: Derived
@@ -89,6 +104,9 @@ final class LyricsModel {
         sourceOverride = d.string(forKey: "sourceOverride").flatMap(SourceID.init(rawValue:))
         showLyricsInMenuBar = d.object(forKey: "showLyricsInMenuBar") as? Bool ?? true
         menuBarLength = d.object(forKey: "menuBarLength") as? Int ?? 40
+        showKaraoke = d.object(forKey: "showKaraoke") as? Bool ?? true
+        karaokeFontSize = CGFloat(d.object(forKey: "karaokeFontSize") as? Double ?? 30)
+        karaokeTint = d.object(forKey: "karaokeTint") as? Double ?? 0.35
         start()
     }
 
@@ -243,13 +261,33 @@ final class LyricsModel {
         }
     }
 
+    private static let ciContext = CIContext(options: [.workingColorSpace: NSNull()])
+
+    /// Mean color of the image, nudged so near-black/white covers still give a usable tint.
+    private static func averageColor(_ image: NSImage) -> NSColor? {
+        guard let tiff = image.tiffRepresentation, let input = CIImage(data: tiff),
+              let filter = CIFilter(name: "CIAreaAverage",
+                                    parameters: [kCIInputImageKey: input,
+                                                 kCIInputExtentKey: CIVector(cgRect: input.extent)]),
+              let output = filter.outputImage else { return nil }
+        var px = [UInt8](repeating: 0, count: 4)
+        ciContext.render(output, toBitmap: &px, rowBytes: 4,
+                         bounds: CGRect(x: 0, y: 0, width: 1, height: 1), format: .RGBA8, colorSpace: nil)
+        let c = NSColor(red: CGFloat(px[0]) / 255, green: CGFloat(px[1]) / 255, blue: CGFloat(px[2]) / 255, alpha: 1)
+        return NSColor(hue: c.hueComponent,
+                       saturation: max(c.saturationComponent, 0.35),
+                       brightness: min(max(c.brightnessComponent, 0.45), 0.85),
+                       alpha: 1)
+    }
+
     #if DEBUG
-    func debugSet(snapshot: PlaybackSnapshot, lyrics: [LyricLine], status: String) {
+    func debugSet(snapshot: PlaybackSnapshot, lyrics: [LyricLine], status: String, artworkColor: NSColor? = nil) {
         pollLoop?.cancel()
         self.snapshot = snapshot
         self.lyrics = lyrics
         lyricsStatus = status
-        currentIndex = SyncEngine.index(at: position(), in: lyrics)
+        self.artworkColor = artworkColor
+        restartLineTimer()
     }
     #endif
 
