@@ -105,6 +105,10 @@ final class LyricsModel {
     /// Text for the status item, or nil to show just the icon.
     var menuBarTitle: String? {
         guard showLyricsInMenuBar, let snapshot else { return nil }
+        // While hidden icons are back (menu window open) or playback is paused, the
+        // menu bar is crowded — icons beside the notch end up behind it — so keep the
+        // status item down to the ♪ icon.
+        if hideIconsWhilePlaying && (isMenuWindowOpen || snapshot.isPaused) { return nil }
         if let line = currentLine, !line.isEmpty, !snapshot.isPaused {
             // Long lines are shown page by page while they're sung (see restartLineTimer).
             let pages = LyricPager.pages(line, maxLength: menuBarLength)

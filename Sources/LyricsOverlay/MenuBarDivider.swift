@@ -76,6 +76,7 @@ final class MenuBarDividerController {
         withObservationTracking {
             _ = shouldCollapse
             _ = model.hideIconsWhilePlaying
+            _ = model.isPlaying
         } onChange: { [weak self] in
             Task { @MainActor in
                 self?.update()
@@ -105,9 +106,11 @@ final class MenuBarDividerController {
             log.info("Lyrics item is left of the divider; not hiding icons until relaunch")
             collapse = false
         }
-        guard collapse != collapsed else { return }
         collapsed = collapse
-        item.length = collapse ? Self.collapsedLength : NSStatusItem.variableLength
-        item.button?.image?.size = collapse ? .zero : NSSize(width: 9, height: 16)
+        // The ‹ mark (where to ⌘-drag icons) only shows when nothing is playing; while
+        // revealing icons during playback it takes no space at all.
+        let showMark = !collapse && !model.isPlaying
+        item.length = collapse ? Self.collapsedLength : showMark ? NSStatusItem.variableLength : 0
+        item.button?.image?.size = showMark ? NSSize(width: 9, height: 16) : .zero
     }
 }
