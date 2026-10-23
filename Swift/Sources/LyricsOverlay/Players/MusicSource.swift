@@ -6,11 +6,12 @@ enum SourceID: String, CaseIterable, Identifiable {
     case spotify = "spotify"
     case youtubeMusic = "youtube_music"
     case localFile = "local_file"
+    case systemNowPlaying = "now_playing"
 
     var id: String { rawValue }
 
     /// Players offered in the source pickers (a local file is opened explicitly instead).
-    static let pickable: [SourceID] = [.appleMusic, .spotify, .youtubeMusic]
+    static let pickable: [SourceID] = [.appleMusic, .spotify, .youtubeMusic, .systemNowPlaying]
 
     var displayName: String {
         switch self {
@@ -18,10 +19,17 @@ enum SourceID: String, CaseIterable, Identifiable {
         case .spotify: "Spotify"
         case .youtubeMusic: "YouTube Music"
         case .localFile: "Local File"
+        case .systemNowPlaying: "Other Apps"
         }
     }
 
-    var shortName: String { self == .youtubeMusic ? "YouTube" : displayName }
+    var shortName: String {
+        switch self {
+        case .youtubeMusic: "YouTube"
+        case .systemNowPlaying: "Other"
+        default: displayName
+        }
+    }
 
     /// Music.app and Spotify post a distributed notification on every play, pause
     /// and track change; browsers don't.
@@ -39,6 +47,10 @@ struct PlaybackSnapshot: Equatable {
     var isPaused: Bool
     var fetchedAt: Date
     var artworkURL: URL?
+    /// Name of the app actually playing, when the source covers several (system Now Playing).
+    var appName: String? = nil
+
+    var playerName: String { appName ?? source.displayName }
 
     var trackKey: String { "\(title)\u{1}\(artist)" }
 }

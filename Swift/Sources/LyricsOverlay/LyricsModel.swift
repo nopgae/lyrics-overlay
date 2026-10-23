@@ -100,6 +100,7 @@ final class LyricsModel {
     // MARK: Private
 
     private let localPlayer = LocalFilePlayer()
+    private let nowPlaying = SystemNowPlayingSource()
     private let sources: [MusicSource]
     private let fetcher = LyricsFetcher(
         cacheDirectory: FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?
@@ -119,7 +120,7 @@ final class LyricsModel {
     private static let resyncInterval: TimeInterval = 4
 
     init() {
-        sources = [AppleMusicPlayer(), SpotifyPlayer(), YouTubeMusicPlayer(), localPlayer]
+        sources = [AppleMusicPlayer(), SpotifyPlayer(), YouTubeMusicPlayer(), nowPlaying, localPlayer]
         let d = UserDefaults.standard
         lyricOffset = d.object(forKey: "lyricOffset") as? Double ?? Self.defaultLyricOffset
         sourceOverride = d.string(forKey: "sourceOverride").flatMap(SourceID.init(rawValue:))
@@ -134,6 +135,9 @@ final class LyricsModel {
 
     private func start() {
         localPlayer.onFinish = { [weak self] in
+            MainActor.assumeIsolated { self?.requestPoll() }
+        }
+        nowPlaying.onChange = { [weak self] in
             MainActor.assumeIsolated { self?.requestPoll() }
         }
         let dnc = DistributedNotificationCenter.default()
@@ -178,7 +182,7 @@ final class LyricsModel {
     }
 
     /// An opened local file wins. Otherwise a playing source beats a paused one;
-    /// ties go Music → Spotify → YouTube Music.
+    /// ties go Music → Spotify → YouTube Music (browser) → other apps (system Now Playing).
     private func pollSources() async -> PlaybackSnapshot? {
         if localPlayer.isLoaded {
             return await localPlayer.snapshot()
@@ -216,6 +220,7 @@ final class LyricsModel {
     }
 
     private func trackDidChange(_ s: PlaybackSnapshot) {
+        log.info("Track: \(s.playerName, privacy: .public) — \(s.title, privacy: .public) / \(s.artist, privacy: .public) at \(s.position, format: .fixed(precision: 1))s")
         lyrics = []
         currentIndex = nil
         artwork = nil
@@ -252,6 +257,7 @@ final class LyricsModel {
             let result = await fetcher.search(query)
             guard !Task.isCancelled, lastQuery == query else { return }
             isFetchingLyrics = false
+            log.info("Lyrics for \(query.title, privacy: .public): \(result.map { "\($0.source) \($0.lines.count) lines" } ?? "none", privacy: .public)")
             if let result {
                 lyrics = result.lines
                 lyricsAreSynced = result.synced

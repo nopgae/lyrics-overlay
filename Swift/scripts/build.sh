@@ -17,6 +17,9 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN_DIR/LyricsOverlay" "$APP/Contents/MacOS/LyricsOverlay"
 cp "$ROOT/Resources/Info.plist" "$APP/Contents/Info.plist"
 cp "$ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
+mkdir -p "$APP/Contents/Frameworks"
+cp "$BIN_DIR/libNowPlayingHelper.dylib" "$APP/Contents/Frameworks/"
+codesign --force --sign "${SIGN_IDENTITY:--}" "$APP/Contents/Frameworks/libNowPlayingHelper.dylib"
 
 codesign --force --options runtime \
     --entitlements "$ROOT/Resources/LyricsOverlay.entitlements" \

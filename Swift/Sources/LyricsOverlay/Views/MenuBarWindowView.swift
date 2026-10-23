@@ -102,7 +102,7 @@ private struct NowPlayingHeader: View {
                     Text(s.title).font(.headline).lineLimit(1)
                     Text(s.artist).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
                     HStack(spacing: 6) {
-                        Label(s.isPaused ? "Paused · \(s.source.displayName)" : s.source.displayName,
+                        Label(s.isPaused ? "Paused · \(s.playerName)" : s.playerName,
                               systemImage: s.isPaused ? "pause.circle" : "waveform")
                             .font(.caption)
                             .foregroundStyle(.tertiary)
