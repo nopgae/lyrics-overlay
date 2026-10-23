@@ -69,8 +69,10 @@ final class LyricsModel {
         didSet { UserDefaults.standard.set(karaokeTint, forKey: "karaokeTint") }
     }
 
-    /// Opens the full lyrics window (set by AppDelegate, which owns the window).
+    // Window actions; set by AppDelegate, which owns the windows.
     @ObservationIgnored var showFullLyrics: () -> Void = {}
+    @ObservationIgnored var showSettings: () -> Void = {}
+    @ObservationIgnored var resetKaraokePosition: () -> Void = {}
 
     // MARK: Derived
 

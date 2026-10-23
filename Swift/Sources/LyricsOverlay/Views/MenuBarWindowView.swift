@@ -60,6 +60,10 @@ struct MenuBarWindowView: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
+                Button { model.showSettings() } label: { Image(systemName: "gearshape") }
+                    .buttonStyle(.borderless)
+                    .keyboardShortcut(",")
+                    .help("Settings")
                 Button("Quit") { NSApplication.shared.terminate(nil) }
                     .buttonStyle(.borderless)
                     .keyboardShortcut("q")

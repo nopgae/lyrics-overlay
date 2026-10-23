@@ -10,10 +10,19 @@ import SwiftUI
 enum DebugSnapshot {
     @MainActor
     static func runIfRequested(model: LyricsModel, karaoke: KaraokePanelController?,
-                               fullLyrics: FullLyricsWindowController) {
+                               fullLyrics: FullLyricsWindowController, settings: SettingsWindowController) {
         let env = ProcessInfo.processInfo.environment
         guard let path = env["LYRICS_SNAPSHOT"] else { return }
         if env["LYRICS_DEMO"] == "1" { model.loadDemo() }
+        if let tab = env["LYRICS_SETTINGS_TAB"].flatMap(Int.init) {
+            UserDefaults.standard.set(tab, forKey: "settingsTab")
+            settings.show()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                try? String(settings.window.windowNumber).write(toFile: path, atomically: true, encoding: .utf8)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3) { exit(0) }
+            }
+            return
+        }
         if env["LYRICS_TARGET"] == "full" {
             fullLyrics.show()
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {

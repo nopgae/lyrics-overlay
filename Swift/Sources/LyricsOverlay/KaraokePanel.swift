@@ -83,8 +83,15 @@ final class KaraokePanelController {
             panel.setFrameOrigin(NSPoint(x: x, y: y))
             return
         }
+        moveToDefaultPosition()
+    }
+
+    func moveToDefaultPosition() {
         guard let screen = NSScreen.main?.visibleFrame else { return }
-        panel.setFrameOrigin(NSPoint(x: screen.midX - KaraokeView.width / 2, y: screen.minY + 80))
+        let origin = NSPoint(x: screen.midX - KaraokeView.width / 2, y: screen.minY + 80)
+        panel.setFrameOrigin(origin)
+        UserDefaults.standard.removeObject(forKey: "karaokeX")
+        UserDefaults.standard.removeObject(forKey: "karaokeY")
     }
 
     private func dragEnded() {

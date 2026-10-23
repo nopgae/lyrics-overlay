@@ -6,6 +6,8 @@
 	<string>ko</string>
 	<key>CFBundleExecutable</key>
 	<string>LyricsOverlay</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
 	<string>com.nopgae.lyrics-overlay</string>
 	<key>CFBundleInfoDictionaryVersion</key>
