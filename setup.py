@@ -25,7 +25,7 @@ OPTIONS = {
         "LSUIElement": True,          # Hide from Dock (menu bar app)
         "NSMicrophoneUsageDescription": "",
         "NSAppleEventsUsageDescription":
-            "Lyrics Overlay needs Apple Events access to detect YouTube Music playback.",
+            "Lyrics Overlay needs Apple Events access to read the current song from Music, Spotify and YouTube Music.",
     },
     "excludes": ["tkinter", "unittest", "email", "xml", "pydoc"],
 }

@@ -10,8 +10,13 @@ AppDelegate (NSObject)
   └─ SyncEngine        – maps position → lyric line
 
 Two NSTimers run on the main thread:
-  • sync_timer  (100 ms)  – updates overlay with current lyric
-  • yt_timer    (1.5 s)   – polls YouTube Music in a background thread
+  • sync_timer  (250 ms)  – updates overlay with current lyric
+  • yt_timer    (1 s)     – polls music sources in a background thread
+
+Music.app and Spotify also post distributed notifications on every play,
+pause and track change; those trigger an immediate poll, so while one of
+them is the active source the timer only re-polls every few seconds to
+catch seeks. YouTube Music (browser) has no notifications and is polled.
 
 A thread-safe queue (_ui_q) carries UI updates from background threads
 back to the main-thread timers.
@@ -25,9 +30,9 @@ from pathlib import Path
 
 import objc
 from AppKit import (
-    NSAlert,
     NSApplication,
     NSApplicationActivationPolicyRegular,
+    NSApplicationDidChangeScreenParametersNotification,
     NSAttributedString,
     NSBackingStoreBuffered,
     NSBezierPath,
@@ -37,8 +42,11 @@ from AppKit import (
     NSFontAttributeName,
     NSForegroundColorAttributeName,
     NSImage,
+    NSControlStateValueOff,
+    NSControlStateValueOn,
     NSMenu,
     NSMenuItem,
+    NSNotificationCenter,
     NSObject,
     NSOpenPanel,
     NSPanel,
@@ -53,17 +61,34 @@ from AppKit import (
     NSWindowStyleMaskBorderless,
 )
 
-from Foundation import NSMakePoint, NSMakeRect, NSMakeSize, NSProcessInfo, NSUserDefaults
+from Foundation import (
+    NSDistributedNotificationCenter,
+    NSMakePoint,
+    NSMakeRect,
+    NSMakeSize,
+    NSProcessInfo,
+    NSUserDefaults,
+)
 
 from .control_panel import ControlPanel
 from .full_lyrics_window import FullLyricsWindow
 from .lrc_parser import load_lrc_file
-from .lyrics_fetcher import search_lyrics
+from .lyrics_fetcher import LyricsResult, forget_lyrics, search_lyrics
 from .overlay import LyricsOverlay
 from .player import MusicPlayer
 from .sync_engine import SyncEngine
 from .music_watcher import get_music_info
+from .spotify_watcher import get_spotify_info
 from .ytmusic_watcher import get_ytmusic_info
+
+# Order matches the control panel's "Music player" popup (stored pref values).
+_SOURCES = ["auto", "youtube_music", "music_app", "spotify"]
+_SOURCE_TITLES = ["Auto-detect", "YouTube Music", "Music.app", "Spotify"]
+
+_PLAYER_NOTIFICATIONS = (
+    "com.apple.Music.playerInfo",
+    "com.spotify.client.PlaybackStateChanged",
+)
 
 
 
@@ -87,22 +112,29 @@ class AppDelegate(NSObject):
         self._lyric_scroll_tick: int = 0
         self._lyric_last_text: str = ""
 
-        # External source state (Music.app / YouTube Music)
-        self._yt_info: dict | None = None
-        self._yt_fetch_key: tuple | None = None
-        self._yt_last_poll_wall: float = 0.0
-        self._yt_last_poll_pos: float = 0.0
-        self._yt_miss_count: int = 0   # consecutive polls returning None
-        self._yt_polling: bool = False  # guard against overlapping poll threads
+        # External source state (Music.app, Spotify or YouTube Music — whichever is active)
+        self._ext_info: dict | None = None
+        self._ext_fetch_key: tuple | None = None
+        self._ext_last_poll_wall: float = 0.0
+        self._ext_last_poll_pos: float = 0.0
+        self._ext_miss_count: int = 0    # consecutive polls returning nothing
+        self._polling: bool = False      # a poll thread is running
+        self._poll_again: bool = False   # a poll was requested while one was running
+        self._poll_lock = threading.Lock()
 
-        self._music_info: dict | None = None
-        self._music_fetch_key: tuple | None = None
-        self._music_last_poll_wall: float = 0.0
-        self._music_last_poll_pos: float = 0.0
-        self._music_miss_count: int = 0
+        # Bumped on every track change; lyrics fetched for an older
+        # generation are discarded instead of overwriting the new track.
+        self._fetch_gen: int = 0
 
-        # Music source override: "auto" | "youtube_music" | "music_app"
+        # Music source override: one of _SOURCES
         self._source_override: str = "auto"
+
+        # Seconds the lyrics are held back relative to the reported position
+        self._lyric_offset: float = self._DEFAULT_LYRIC_OFFSET
+
+        self._lyrics_status: str = "—"           # e.g. "LRCLIB  (51 lines)"
+        self._last_fetch_args: tuple | None = None
+        self._status_menu: NSMenu | None = None
 
         # Thread-safe queue for UI updates from background threads
         self._ui_q: queue.SimpleQueue = queue.SimpleQueue()
@@ -134,7 +166,7 @@ class AppDelegate(NSObject):
 
         self._overlay.update(
             current="♪  Lyrics Overlay",
-            next_line="Open an MP3 or play a song in YouTube Music",
+            next_line="Play a song in Music, Spotify or YouTube Music",
         )
 
         self._overlay.set_delegate(self)
@@ -152,21 +184,43 @@ class AppDelegate(NSObject):
             0.25, self, "syncTick:", None, True
         )
 
-        # 1 s YouTube Music / Music.app poll timer
+        # 1 s music source poll timer
         self._yt_timer = NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
             1.0, self, "ytTick:", None, True
         )
 
         self._player.on_track_end = self._on_track_end
 
+        NSNotificationCenter.defaultCenter().addObserver_selector_name_object_(
+            self, "screenParametersChanged:",
+            NSApplicationDidChangeScreenParametersNotification, None,
+        )
+
+        dnc = NSDistributedNotificationCenter.defaultCenter()
+        for name in _PLAYER_NOTIFICATIONS:
+            dnc.addObserver_selector_name_object_(self, "playerStateChanged:", name, None)
+
         # Kick off an immediate first poll instead of waiting for the 1s timer
-        threading.Thread(target=self._initial_poll, daemon=True).start()
+        self._request_poll()
 
     def applicationShouldTerminateAfterLastWindowClosed_(self, _app):
         return False
 
     def checkNotchFallback_(self, _timer):
         self._setup_notch_panel_if_needed()
+
+    def screenParametersChanged_(self, _notif):
+        """Display connected/disconnected or resolution changed."""
+        self._overlay.ensure_on_screen()
+        # Rebuild the notch panel for the new geometry (or drop it if the
+        # status item is no longer in overflow).
+        if self._notch_panel is not None:
+            self._notch_panel.orderOut_(None)
+            self._notch_panel = None
+            self._notch_lbl = None
+        NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
+            1.0, self, "checkNotchFallback:", None, False
+        )
 
     # ------------------------------------------------------------------ #
     # Timers (main thread)                                                 #
@@ -182,14 +236,13 @@ class AppDelegate(NSObject):
                 break
 
         # Skip if nothing is actively playing
+        if not (self._player.is_playing or self._player.is_paused or self._ext_info):
+            if self._lyrics_mode:
+                self._update_status_lyric("")
+            return
         if not self._sync.has_lyrics:
             if self._lyrics_mode:
-                self._set_lyric_text("♪")
-            return
-        if not (self._player.is_playing or self._player.is_paused
-                or self._yt_info or self._music_info):
-            if self._lyrics_mode:
-                self._set_lyric_text("♪")
+                self._update_status_lyric("")  # falls back to song title
             return
 
         pos = self._current_position()
@@ -201,135 +254,137 @@ class AppDelegate(NSObject):
         self._update_status_lyric(current)
         self._full_lyrics.highlight(self._sync.get_current_idx(pos))
 
-    def _initial_poll(self):
-        self._yt_polling = True
-        try:
-            music, yt = self._poll_sources()
-            self._ui_q.put(lambda m=music, y=yt: self._apply_sources(m, y))
-        finally:
-            self._yt_polling = False
+    # Music.app / Spotify notify on changes, so they only need a periodic
+    # re-poll to pick up seeks (which post no notification).
+    _RESYNC_INTERVAL = 4.0
+
+    def playerStateChanged_(self, _notif):
+        """Music.app / Spotify play, pause or track change."""
+        self._request_poll()
 
     def ytTick_(self, _timer):
+        info = self._ext_info
+        if (info and info["source"] in ("music_app", "spotify")
+                and time.time() - self._ext_last_poll_wall < self._RESYNC_INTERVAL):
+            return
+        self._request_poll()
+
+    def _request_poll(self):
         # No need to poll external sources while the MP3 player is active
         if self._player.is_playing or self._player.is_paused:
             return
-        # Skip if a poll thread is still running (prevents stale results)
-        if self._yt_polling:
-            return
+        with self._poll_lock:
+            if self._polling:
+                # Don't start a second thread (stale results could land out of
+                # order); have the running one go round once more instead.
+                self._poll_again = True
+                return
+            self._polling = True
+        threading.Thread(target=self._poll_worker, daemon=True).start()
 
-        self._yt_polling = True
+    def _poll_worker(self):
+        try:
+            while True:
+                self._poll_again = False
+                info = self._poll_sources()
+                self._ui_q.put(lambda i=info: self._apply_ext_info(i))
+                with self._poll_lock:
+                    if not self._poll_again:
+                        self._polling = False
+                        return
+        except Exception:
+            with self._poll_lock:
+                self._polling = False
+            raise
 
-        def _poll():
-            try:
-                music, yt = self._poll_sources()
-                self._ui_q.put(lambda m=music, y=yt: self._apply_sources(m, y))
-            finally:
-                self._yt_polling = False
+    def _poll_sources(self) -> dict | None:
+        """Poll music sources; respects _source_override.
 
-        threading.Thread(target=_poll, daemon=True).start()
-
-    def _poll_sources(self) -> tuple:
-        """Poll music sources; respects _source_override."""
-        if self._source_override == "youtube_music":
-            return None, get_ytmusic_info()
-        if self._source_override == "music_app":
-            return get_music_info(), None
-        # Auto: both in parallel, Music.app takes priority
-        with __import__('concurrent.futures', fromlist=['ThreadPoolExecutor']).ThreadPoolExecutor(max_workers=2) as ex:
-            f_music = ex.submit(get_music_info)
-            f_yt = ex.submit(get_ytmusic_info)
-            music = f_music.result()
-            yt = f_yt.result()
-        return music, (None if music else yt)
+        AppleScript calls are serialized (see applescript.py), so sources are
+        queried one after another. In auto mode a playing source beats a
+        paused one; on a tie the order is Music.app, Spotify, YouTube Music.
+        """
+        single = {
+            "music_app": get_music_info,
+            "spotify": get_spotify_info,
+            "youtube_music": get_ytmusic_info,
+        }.get(self._source_override)
+        if single:
+            return single()
+        paused = None
+        for get_info in (get_music_info, get_spotify_info, get_ytmusic_info):
+            info = get_info()
+            if info and not info["paused"]:
+                return info
+            paused = paused or info
+        return paused
 
     # ------------------------------------------------------------------ #
-    # External sources (Music.app / YouTube Music)                        #
+    # External sources (Music.app / Spotify / YouTube Music)              #
     # ------------------------------------------------------------------ #
 
-    def _apply_sources(self, music_info: dict | None, yt_info: dict | None):
-        """Route results from the background poll to the right handler."""
-        if music_info:
-            self._yt_info = None
-            self._yt_fetch_key = None
-            self._apply_music_info(music_info)
-        else:
-            self._music_info = None
-            self._music_fetch_key = None
-            self._apply_yt_info(yt_info)
+    _SOURCE_LABELS = {"music_app": "Music.app", "spotify": "Spotify", "youtube_music": "YT Music"}
 
-    def _apply_music_info(self, info: dict):
-        """Called on main thread via _ui_q."""
-        self._music_miss_count = 0
-        self._music_info = info
-        self._music_last_poll_wall = info.get("_fetched_at", time.time())
-        self._music_last_poll_pos = info["current_time"]
-
-        title = info.get("title", "")
-        artist = info.get("artist", "")
-        label = f"Music.app: {title}  —  {artist}" if artist else f"Music.app: {title}"
-        self._control.update_yt(label)
-
-        key = (title, artist)
-        if key != self._music_fetch_key:
-            self._music_fetch_key = key
-            if self._player.is_playing or self._player.is_paused:
-                self._player.stop()
-            self._sync.clear()
-            self._full_lyrics.set_lyrics([])
-            self._control.update_track(title, artist)
-            self._fetch_lyrics(title, artist, duration=info.get("duration", 0))
-
-    def _apply_yt_info(self, info: dict | None):
-        """Called on main thread via _ui_q."""
+    def _apply_ext_info(self, info: dict | None):
+        """Called on main thread via _ui_q with the result of one poll."""
         if not info:
-            self._yt_miss_count += 1
+            self._ext_miss_count += 1
             # Tolerate up to 2 consecutive missed polls (~2 s) before clearing,
-            # so brief browser hiccups don't drop lyrics mid-song.
-            if self._yt_miss_count >= 3:
-                self._yt_info = None
+            # so brief AppleScript/browser hiccups don't drop lyrics mid-song.
+            if self._ext_miss_count >= 3 and self._ext_info is not None:
+                self._ext_info = None
                 self._control.update_yt("Not playing")
             return
 
-        self._yt_miss_count = 0
-        self._yt_info = info
-        self._yt_last_poll_wall = info.get("_fetched_at", time.time())
-        self._yt_last_poll_pos = info["current_time"]
+        self._ext_miss_count = 0
+        self._ext_info = info
+        self._ext_last_poll_wall = info.get("_fetched_at", time.time())
+        self._ext_last_poll_pos = info["current_time"]
 
         title = info.get("title", "")
         artist = info.get("artist", "")
-        label = f"YT Music: {title}  —  {artist}" if artist else f"YT Music: {title}"
+        label = f"{self._SOURCE_LABELS.get(info['source'], '')}: {title}"
+        if artist:
+            label += f"  —  {artist}"
+        if info.get("paused"):
+            label += "  (paused)"
         self._control.update_yt(label)
 
+        # Same song from another source (or paused→playing) keeps its lyrics
         key = (title, artist)
-        if key != self._yt_fetch_key:
-            self._yt_fetch_key = key
+        if key != self._ext_fetch_key:
+            self._ext_fetch_key = key
             if self._player.is_playing or self._player.is_paused:
                 self._player.stop()
             self._sync.clear()
             self._full_lyrics.set_lyrics([])
             self._control.update_track(title, artist)
-            self._fetch_lyrics(title, artist, duration=info.get("duration", 0))
+            self._fetch_lyrics(
+                title, artist,
+                album=info.get("album", ""),
+                duration=info.get("duration", 0),
+            )
 
     # ------------------------------------------------------------------ #
     # Position                                                             #
     # ------------------------------------------------------------------ #
 
     # Audio hardware buffers ~200ms ahead of perceived output; subtract so
-    # lyrics don't appear before you hear the line. Tune if still off.
-    _LYRIC_OFFSET = 0.2
+    # lyrics don't appear before you hear the line. Adjustable from the menu
+    # (Bluetooth/AirPlay output needs much more).
+    _DEFAULT_LYRIC_OFFSET = 0.2
 
     def _current_position(self) -> float:
         # MP3 player has priority
         if self._player.is_playing or self._player.is_paused:
-            return max(0.0, self._player.position - self._LYRIC_OFFSET)
+            return max(0.0, self._player.position - self._lyric_offset)
 
-        # Music.app or YouTube Music: interpolate between polls
-        if self._music_info:
-            pos = self._music_last_poll_pos + (time.time() - self._music_last_poll_wall)
-            return max(0.0, pos - self._LYRIC_OFFSET)
-        if self._yt_info:
-            pos = self._yt_last_poll_pos + (time.time() - self._yt_last_poll_wall)
-            return max(0.0, pos - self._LYRIC_OFFSET)
+        # External source: interpolate between polls (not while paused)
+        if self._ext_info:
+            pos = self._ext_last_poll_pos
+            if not self._ext_info.get("paused"):
+                pos += time.time() - self._ext_last_poll_wall
+            return max(0.0, pos - self._lyric_offset)
 
         return 0.0
 
@@ -356,11 +411,13 @@ class AppDelegate(NSObject):
         self._save_pref_float("overlayOpacity", alpha)
 
     def sourceAction_(self, sender):
-        _opts = ["auto", "youtube_music", "music_app"]
-        self._source_override = _opts[sender.indexOfSelectedItem()]
-        NSUserDefaults.standardUserDefaults().setObject_forKey_(
-            self._source_override, "sourceOverride"
-        )
+        self._set_source_override(_SOURCES[sender.indexOfSelectedItem()])
+
+    def _set_source_override(self, src: str) -> None:
+        self._source_override = src
+        self._control.set_source_selector(_SOURCES.index(src))
+        NSUserDefaults.standardUserDefaults().setObject_forKey_(src, "sourceOverride")
+        self._request_poll()
 
     def _open_file(self):
         panel = NSOpenPanel.openPanel()
@@ -383,8 +440,9 @@ class AppDelegate(NSObject):
         artist = info.get("artist", "")
         self._control.update_track(title, artist)
         self._control.update_status("Loaded — press Play")
-        self._yt_info = None    # MP3 mode takes over
-        self._music_info = None
+        self._ext_info = None   # MP3 mode takes over
+        self._ext_fetch_key = None
+        self._fetch_gen += 1    # drop any lyrics still in flight for the old track
 
         # LRC file next to the MP3?
         lrc = Path(path).with_suffix(".lrc")
@@ -393,26 +451,40 @@ class AppDelegate(NSObject):
             if lines:
                 self._sync.set_lyrics(lines)
                 self._full_lyrics.set_lyrics(self._sync.lines)
-                self._control.update_source(f"Local LRC  ({len(lines)} lines)")
+                self._set_lyrics_status(f"Local LRC  ({len(lines)} lines)")
                 return
 
         self._fetch_lyrics(title, artist, duration=info.get("duration", 0))
 
-    def _fetch_lyrics(self, title: str, artist: str = "", duration: float = 0):
-        self._control.update_source("Searching LRCLIB…")
+    def _set_lyrics_status(self, text: str) -> None:
+        self._lyrics_status = text
+        self._control.update_source(text)
+
+    def _fetch_lyrics(self, title: str, artist: str = "", album: str = "", duration: float = 0):
+        self._last_fetch_args = (title, artist, album, duration)
+        self._fetch_gen += 1
+        gen = self._fetch_gen
+        self._set_lyrics_status("Searching LRCLIB…")
 
         def _worker():
-            lines = search_lyrics(title, artist, duration=duration)
-            if lines:
-                def _apply():
-                    self._sync.set_lyrics(lines)
+            result: LyricsResult | None = search_lyrics(
+                title, artist, album=album, duration=duration
+            )
+
+            def _apply():
+                if gen != self._fetch_gen:
+                    return  # track changed while we were fetching
+                if result:
+                    self._sync.set_lyrics(result.lines)
                     self._full_lyrics.set_lyrics(self._sync.lines)
-                    self._control.update_source(f"LRCLIB  ({len(lines)} lines)")
-            else:
-                def _apply():
+                    sync_note = "" if result.synced else ", unsynced"
+                    self._set_lyrics_status(
+                        f"{result.source}  ({len(result.lines)} lines{sync_note})"
+                    )
+                else:
                     self._sync.clear()
                     self._full_lyrics.set_lyrics([])
-                    self._control.update_source("Not found")
+                    self._set_lyrics_status("Not found")
             self._ui_q.put(_apply)
 
         threading.Thread(target=_worker, daemon=True).start()
@@ -494,6 +566,14 @@ class AppDelegate(NSObject):
         toggle.setTarget_(self)
         app_menu.addItem_(toggle)
 
+        for title, action, key in (
+            ("Show Lyrics Earlier", "lyricsEarlier:", "["),
+            ("Show Lyrics Later", "lyricsLater:", "]"),
+        ):
+            item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(title, action, key)
+            item.setTarget_(self)
+            app_menu.addItem_(item)
+
         app_menu.addItem_(NSMenuItem.separatorItem())
 
         hide = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
@@ -519,8 +599,8 @@ class AppDelegate(NSObject):
         btn = self._status_item.button()
         btn.setTitle_("♪")
         btn.setAccessibilityIdentifier_("io.lyricsoverlay.note")
-        btn.setTarget_(self)
-        btn.setAction_("toggleLyricsMode:")
+        self._status_menu = self._build_status_menu()
+        self._status_item.setMenu_(self._status_menu)
         self._status_item.setVisible_(True)
 
     def _is_status_item_overflow(self) -> bool:
@@ -593,7 +673,7 @@ class AppDelegate(NSObject):
         click_btn.setBordered_(False)
         click_btn.setTransparent_(True)
         click_btn.setTarget_(self)
-        click_btn.setAction_("toggleLyricsMode:")
+        click_btn.setAction_("showStatusMenu:")
         panel.contentView().addSubview_(click_btn)
 
         self._notch_panel = panel
@@ -630,10 +710,18 @@ class AppDelegate(NSObject):
             parts.append(current)
         return parts or [text[:self._LYRIC_PART_CHARS]]
 
+    def _idle_status_text(self) -> str:
+        """Menu-bar text when there is no lyric line: the song, or just ♪."""
+        track = self._track_title_artist()
+        if not track or not track[0]:
+            return "♪"
+        title, artist = track
+        return f"♪ {title} — {artist}" if artist else f"♪ {title}"
+
     def _update_status_lyric(self, text: str) -> None:
         if not self._lyrics_mode:
             return
-        t = (text or "").strip()
+        t = (text or "").strip() or self._idle_status_text()
         if t != self._lyric_last_text:
             self._lyric_last_text = t
             self._lyric_parts = self._split_lyric(t)
@@ -665,27 +753,123 @@ class AppDelegate(NSObject):
     def showFullLyricsAction_(self, _sender):
         self._full_lyrics.show()
 
-    def _show_ax_permission_alert(self):
-        import sys
-        python_path = sys.executable
-        alert = NSAlert.alloc().init()
-        alert.setMessageText_("Accessibility Permission Required")
-        alert.setInformativeText_(
-            f"To hide other menu-bar icons, grant Accessibility access to Python:\n\n"
-            f"1. Open: System Settings → Privacy & Security → Accessibility\n"
-            f"2. Click + and add:\n   {python_path}\n"
-            f"3. Enable the toggle next to it\n"
-            f"4. Quit and relaunch Lyrics Overlay"
+    # ------------------------------------------------------------------ #
+    # Status item menu                                                     #
+    # ------------------------------------------------------------------ #
+
+    def _build_status_menu(self) -> NSMenu:
+        menu = NSMenu.alloc().initWithTitle_("Lyrics Overlay")
+        menu.setAutoenablesItems_(False)
+        menu.setDelegate_(self)  # menuNeedsUpdate_ refreshes titles on open
+
+        def add(title: str, action: str | None = None, key: str = "") -> NSMenuItem:
+            item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(title, action, key)
+            if action:
+                item.setTarget_(self)
+            else:
+                item.setEnabled_(False)
+            menu.addItem_(item)
+            return item
+
+        self._mi_now = add("Not playing")
+        self._mi_lyrics = add("Lyrics: —")
+        menu.addItem_(NSMenuItem.separatorItem())
+        self._mi_menubar = add("Show Lyrics in Menu Bar", "toggleLyricsMode:")
+        self._mi_overlay = add("Show Overlay", "toggleOverlayMenu:")
+        add("Full Lyrics…", "showFullLyricsAction:")
+        menu.addItem_(NSMenuItem.separatorItem())
+        self._mi_offset = add("Lyric Delay: +0.2 s")
+        add("Show Lyrics Earlier", "lyricsEarlier:", "[")
+        add("Show Lyrics Later", "lyricsLater:", "]")
+        add("Reset Delay", "resetLyricOffset:")
+        add("Search Lyrics Again", "refetchLyrics:")
+        menu.addItem_(NSMenuItem.separatorItem())
+
+        src_item = add("Music Player", "noop:")
+        src_menu = NSMenu.alloc().initWithTitle_("Music Player")
+        self._mi_sources = []
+        for i, title in enumerate(_SOURCE_TITLES):
+            item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+                title, "sourceMenuAction:", ""
+            )
+            item.setTarget_(self)
+            item.setTag_(i)
+            src_menu.addItem_(item)
+            self._mi_sources.append(item)
+        src_item.setSubmenu_(src_menu)
+
+        menu.addItem_(NSMenuItem.separatorItem())
+        add("Controls…", "showControls:", ",")
+        quit_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+            "Quit Lyrics Overlay", "terminate:", "q"
         )
-        alert.addButtonWithTitle_("Open System Settings")
-        alert.addButtonWithTitle_("Cancel")
-        from lyrics_overlay.menu_bar_hider import request_ax_permission
-        request_ax_permission()
-        NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
-        if alert.runModal() == 1000:  # NSAlertFirstButtonReturn
-            import subprocess
-            subprocess.Popen(["open",
-                "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"])
+        quit_item.setTarget_(NSApplication.sharedApplication())
+        menu.addItem_(quit_item)
+        return menu
+
+    def menuNeedsUpdate_(self, menu):
+        if menu != self._status_menu:
+            return
+        track = self._track_title_artist()
+        if track:
+            title, artist = track
+            text = f"{title} — {artist}" if artist else title
+            paused = (self._ext_info or {}).get("paused") or self._player.is_paused
+            self._mi_now.setTitle_(("❚❚ " if paused else "♪ ") + text)
+        else:
+            self._mi_now.setTitle_("Not playing")
+        self._mi_lyrics.setTitle_(f"Lyrics: {self._lyrics_status}")
+
+        def check(item: NSMenuItem, on: bool) -> None:
+            item.setState_(NSControlStateValueOn if on else NSControlStateValueOff)
+
+        check(self._mi_menubar, self._lyrics_mode)
+        check(self._mi_overlay, self._overlay.is_visible())
+        self._mi_offset.setTitle_(f"Lyric Delay: {self._lyric_offset:+.1f} s")
+        for i, item in enumerate(self._mi_sources):
+            check(item, _SOURCES[i] == self._source_override)
+
+    def showStatusMenu_(self, sender):
+        """Notch fallback panel click: pop the same menu under the panel."""
+        self.menuNeedsUpdate_(self._status_menu)
+        self._status_menu.popUpMenuPositioningItem_atLocation_inView_(
+            None, NSMakePoint(0, 0), sender
+        )
+
+    def noop_(self, _sender):
+        pass
+
+    def sourceMenuAction_(self, sender):
+        self._set_source_override(_SOURCES[sender.tag()])
+
+    def lyricsEarlier_(self, _sender):
+        self._set_lyric_offset(self._lyric_offset - 0.1)
+
+    def lyricsLater_(self, _sender):
+        self._set_lyric_offset(self._lyric_offset + 0.1)
+
+    def resetLyricOffset_(self, _sender):
+        self._set_lyric_offset(self._DEFAULT_LYRIC_OFFSET)
+
+    def _set_lyric_offset(self, value: float) -> None:
+        self._lyric_offset = round(max(-5.0, min(5.0, value)), 1)
+        self._save_pref_float("lyricOffset", self._lyric_offset)
+
+    def refetchLyrics_(self, _sender):
+        if not self._last_fetch_args:
+            return
+        title, artist, album, duration = self._last_fetch_args
+        forget_lyrics(title, artist)
+        self._sync.clear()
+        self._full_lyrics.set_lyrics([])
+        self._fetch_lyrics(title, artist, album=album, duration=duration)
+
+    def _track_title_artist(self) -> tuple[str, str] | None:
+        if self._ext_info:
+            return self._ext_info.get("title", ""), self._ext_info.get("artist", "")
+        if self._player.is_loaded and self._current_track:
+            return self._current_track.get("title", ""), self._current_track.get("artist", "")
+        return None
 
     def showControls_(self, _):
         if self._control._window:
@@ -726,13 +910,15 @@ class AppDelegate(NSObject):
                 prefs.floatForKey_("overlayX"),
                 prefs.floatForKey_("overlayY"),
             )
+            self._overlay.ensure_on_screen()
 
         src = prefs.stringForKey_("sourceOverride")
-        if src in ("auto", "youtube_music", "music_app"):
+        if src in _SOURCES:
             self._source_override = src
-            self._control.set_source_selector(
-                ["auto", "youtube_music", "music_app"].index(src)
-            )
+            self._control.set_source_selector(_SOURCES.index(src))
+
+        if prefs.objectForKey_("lyricOffset") is not None:
+            self._lyric_offset = prefs.floatForKey_("lyricOffset")
 
     def toggleOverlayMenu_(self, _):
         self._overlay.set_visible(not self._overlay.is_visible())

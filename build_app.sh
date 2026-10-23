@@ -67,7 +67,7 @@ cat > "$APP_DIR/Contents/Info.plist" << 'PLISTEOF'
     <key>LSUIElement</key>
     <true/>
     <key>NSAppleEventsUsageDescription</key>
-    <string>Lyrics Overlay needs Apple Events access to detect YouTube Music playback.</string>
+    <string>Lyrics Overlay needs Apple Events access to read the current song from Music, Spotify and YouTube Music.</string>
     <key>NSDocumentsFolderUsageDescription</key>
     <string>Lyrics Overlay needs access to your Documents folder to load MP3 and LRC files.</string>
 </dict>

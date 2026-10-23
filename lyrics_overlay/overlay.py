@@ -17,6 +17,7 @@ from AppKit import (
     NSFloatingWindowLevel,
     NSMakeRect,
     NSPanel,
+    NSScreen,
     NSTextField,
     NSTextAlignmentCenter,
     NSView,
@@ -204,3 +205,22 @@ class LyricsOverlay:
         if self._window:
             return self._window.frame().origin
         return None
+
+    def ensure_on_screen(self) -> None:
+        """Move the overlay back to the default spot if no screen contains its centre
+        (e.g. the external display it was on was disconnected)."""
+        if not self._window:
+            return
+        f = self._window.frame()
+        cx = f.origin.x + f.size.width / 2
+        cy = f.origin.y + f.size.height / 2
+        for screen in NSScreen.screens():
+            sf = screen.frame()
+            if (sf.origin.x <= cx <= sf.origin.x + sf.size.width
+                    and sf.origin.y <= cy <= sf.origin.y + sf.size.height):
+                return
+        main = NSScreen.mainScreen().frame()
+        self._window.setFrameOrigin_((
+            main.origin.x + (main.size.width - WINDOW_W) / 2,
+            main.origin.y + main.size.height * 0.12,
+        ))

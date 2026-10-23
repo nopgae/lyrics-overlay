@@ -10,7 +10,7 @@ import json
 import time
 from typing import Optional
 
-from Foundation import NSAppleScript
+from .applescript import app_is_running, run_applescript
 
 CHROMIUM_BROWSERS = [
     "Google Chrome",
@@ -18,6 +18,14 @@ CHROMIUM_BROWSERS = [
     "Microsoft Edge",
     "Chromium",
 ]
+
+BUNDLE_IDS = {
+    "Safari":         "com.apple.Safari",
+    "Google Chrome":  "com.google.Chrome",
+    "Brave Browser":  "com.brave.Browser",
+    "Microsoft Edge": "com.microsoft.edgemac",
+    "Chromium":       "org.chromium.Chromium",
+}
 
 YT_MUSIC_HOST = "music.youtube.com"
 
@@ -28,30 +36,20 @@ _JS = _JS_RAW.replace('"', '\\"')   # escaped once at import time
 _last_browser: Optional[str] = None
 
 
-def _run(source: str) -> str:
-    try:
-        s = NSAppleScript.alloc().initWithSource_(source)
-        desc, err = s.executeAndReturnError_(None)
-        if err or desc is None:
-            return ""
-        v = desc.stringValue()
-        return str(v) if v else ""
-    except Exception:
-        return ""
-
-
 def _parse(raw: str, fetched_at: float) -> Optional[dict]:
     if not raw:
         return None
     try:
         data = json.loads(raw)
-        if data.get("paused") or not data.get("title"):
+        if not data.get("title"):
             return None
         return {
             "title":        data["title"],
             "artist":       data.get("artist", ""),
+            "album":        "",
             "current_time": float(data["currentTime"]),
             "duration":     float(data["duration"]),
+            "paused":       bool(data.get("paused")),
             "source":       "youtube_music",
             "_fetched_at":  fetched_at,
         }
@@ -61,9 +59,7 @@ def _parse(raw: str, fetched_at: float) -> Optional[dict]:
 
 def _query_chromium(app: str) -> Optional[dict]:
     script = f"""
-tell application "System Events"
-    if not (exists process "{app}") then return ""
-end tell
+if application "{app}" is not running then return ""
 tell application "{app}"
     try
         repeat with w in windows
@@ -79,16 +75,14 @@ end tell
 return ""
 """
     t0 = time.time()
-    raw = _run(script)
+    raw = run_applescript(script)
     t1 = time.time()
     return _parse(raw, (t0 + t1) / 2)
 
 
 def _query_safari() -> Optional[dict]:
     script = f"""
-tell application "System Events"
-    if not (exists process "Safari") then return ""
-end tell
+if application "Safari" is not running then return ""
 tell application "Safari"
     try
         repeat with w in windows
@@ -104,38 +98,44 @@ end tell
 return ""
 """
     t0 = time.time()
-    raw = _run(script)
+    raw = run_applescript(script)
     t1 = time.time()
     return _parse(raw, (t0 + t1) / 2)
 
 
 def get_ytmusic_info() -> Optional[dict]:
     """
-    Return playback info dict from YouTube Music, or None if not playing.
-    Keys: title, artist, current_time (seconds), duration (seconds), source
+    Return playback info dict from YouTube Music, or None if no tab has a track.
+    Keys: title, artist, album, current_time (seconds), duration (seconds), paused, source
     """
     global _last_browser
 
-    # Fast path: try the browser that worked last time first
+    def _query(browser: str) -> Optional[dict]:
+        if not app_is_running(BUNDLE_IDS[browser]):
+            return None
+        return _query_safari() if browser == "Safari" else _query_chromium(browser)
+
+    # Fast path: the browser that was playing last time
     if _last_browser:
-        result = (
-            _query_safari() if _last_browser == "Safari"
-            else _query_chromium(_last_browser)
-        )
-        if result:
+        result = _query(_last_browser)
+        if result and not result["paused"]:
             return result
-        _last_browser = None   # it stopped; fall through to full scan
+        # Paused or gone: scan everything in case another browser is playing
 
-    # Full scan
-    result = _query_safari()
-    if result:
-        _last_browser = "Safari"
-        return result
-
-    for browser in CHROMIUM_BROWSERS:
-        result = _query_chromium(browser)
-        if result:
+    # Full scan — a playing tab wins over a paused one
+    paused_hit: Optional[tuple[str, dict]] = None
+    for browser in ["Safari", *CHROMIUM_BROWSERS]:
+        result = _query(browser)
+        if not result:
+            continue
+        if not result["paused"]:
             _last_browser = browser
             return result
+        if paused_hit is None:
+            paused_hit = (browser, result)
 
+    if paused_hit:
+        _last_browser = paused_hit[0]
+        return paused_hit[1]
+    _last_browser = None
     return None

@@ -94,6 +94,7 @@ class ControlPanel:
         popup.addItemWithTitle_("Auto-detect")
         popup.addItemWithTitle_("YouTube Music")
         popup.addItemWithTitle_("Music.app")
+        popup.addItemWithTitle_("Spotify")
         popup.setTarget_(action_target)
         popup.setAction_("sourceAction:")
         cv.addSubview_(popup)
