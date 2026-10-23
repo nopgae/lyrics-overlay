@@ -79,11 +79,6 @@ final class LyricsModel {
         didSet { UserDefaults.standard.set(iconsHiddenWhenIdle, forKey: "iconsHiddenWhenIdle") }
     }
 
-    /// Whether ♪ is on screen: it's pushed off along with the other icons while
-    /// they're hidden and nothing is playing; the ‹ toggle brings it back.
-    var isMenuBarItemInserted: Bool {
-        !(menuBarPlacementDone && hideIconsWhilePlaying && !isPlaying && iconsHiddenWhenIdle && !isMenuWindowOpen)
-    }
     /// ♪ stays in the menu bar until its position has been measured once.
     var menuBarPlacementDone: Bool {
         didSet { UserDefaults.standard.set(menuBarPlacementDone, forKey: "menuBarPlacementDone") }

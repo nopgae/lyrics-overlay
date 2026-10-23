@@ -157,7 +157,6 @@ final class NotchPanelController {
         withObservationTracking {
             _ = model.notchMode
             _ = model.snapshot == nil
-            _ = model.isMenuBarItemInserted
         } onChange: { [weak self] in
             Task { @MainActor in
                 self?.update()
@@ -203,8 +202,7 @@ final class NotchPanelController {
         let show: Bool
         switch model.notchMode {
         case .off: show = false
-        // (♪ hidden on purpose by the ‹ toggle doesn't count.)
-        case .auto: show = statusItemHidden && model.snapshot != nil && model.isMenuBarItemInserted
+        case .auto: show = statusItemHidden && model.snapshot != nil
         case .always: show = model.snapshot != nil
         }
         guard show != visible else { return }

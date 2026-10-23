@@ -44,7 +44,7 @@ private struct GeneralSettings: View {
             .disabled(!model.showLyricsInMenuBar)
             VStack(alignment: .leading, spacing: 4) {
                 Toggle("Hide other menu bar icons", isOn: $model.hideIconsWhilePlaying)
-                Text("Icons left of ♪ hide while music plays (click ♪ to see them). When nothing plays, the ‹ button shows or hides them. ⌘-drag icons left of ♪ to hide them, or right of ‹ to keep them.")
+                Text("Icons left of ♪ hide while music plays (click ♪ to see them). When nothing plays, the ‹ › button next to ♪ shows or hides them. ⌘-drag icons right of ‹ › to keep them visible.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
