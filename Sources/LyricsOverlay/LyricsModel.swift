@@ -70,9 +70,23 @@ final class LyricsModel {
     var karaokeFontSize: CGFloat {
         didSet { UserDefaults.standard.set(Double(karaokeFontSize), forKey: "karaokeFontSize") }
     }
-    /// Push the icons left of the divider off the menu bar while lyrics play.
+    /// Bartender-style hiding of the menu bar icons left of ♪ (see MenuBarDividerController).
     var hideIconsWhilePlaying: Bool {
         didSet { UserDefaults.standard.set(hideIconsWhilePlaying, forKey: "hideIconsWhilePlaying") }
+    }
+    /// When nothing is playing: whether the ‹ toggle has the icons (and ♪) hidden.
+    var iconsHiddenWhenIdle: Bool {
+        didSet { UserDefaults.standard.set(iconsHiddenWhenIdle, forKey: "iconsHiddenWhenIdle") }
+    }
+
+    /// ♪ leaves the menu bar along with the other icons while they're hidden and
+    /// nothing is playing; the ‹ toggle brings it back.
+    var isMenuBarItemInserted: Bool {
+        !(menuBarPlacementDone && hideIconsWhilePlaying && !isPlaying && iconsHiddenWhenIdle && !isMenuWindowOpen)
+    }
+    /// ♪ stays in the menu bar until its position has been measured once.
+    var menuBarPlacementDone: Bool {
+        didSet { UserDefaults.standard.set(menuBarPlacementDone, forKey: "menuBarPlacementDone") }
     }
     var notchMode: NotchMode {
         didSet { UserDefaults.standard.set(notchMode.rawValue, forKey: "notchMode") }
@@ -151,6 +165,8 @@ final class LyricsModel {
         karaokeFontSize = CGFloat(d.object(forKey: "karaokeFontSize") as? Double ?? 30)
         karaokeTint = d.object(forKey: "karaokeTint") as? Double ?? 0.35
         hideIconsWhilePlaying = d.object(forKey: "hideIconsWhilePlaying") as? Bool ?? true
+        iconsHiddenWhenIdle = d.object(forKey: "iconsHiddenWhenIdle") as? Bool ?? true
+        menuBarPlacementDone = d.bool(forKey: "menuBarPlacementDone")
         notchMode = d.string(forKey: "notchMode").flatMap(NotchMode.init(rawValue:)) ?? .auto
         start()
     }
