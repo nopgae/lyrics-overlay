@@ -1,53 +1,12 @@
-# Python
-__pycache__/
-*.py[cod]
-*.pyo
-*.pyd
-*.so
-*.egg
-*.egg-info/
-dist/
+# SwiftPM / build output
+.build/
 build/
-.eggs/
-pip-wheel-metadata/
-MANIFEST
+.swiftpm/
 
-# Virtual environments
-.venv/
-venv/
-env/
-ENV/
-
-# Testing
-.pytest_cache/
-.coverage
-htmlcov/
-.tox/
+# Leftovers from the Python version (python-v0.5 tag)
+dist/
+__pycache__/
 
 # macOS
 .DS_Store
-.AppleDouble
-.LSOverride
-Icon
 ._*
-.Spotlight-V100
-.Trashes
-*.app/
-
-# IDEs
-.idea/
-.vscode/
-*.swp
-*.swo
-*~
-.project
-.classpath
-.settings/
-
-# Logs
-*.log
-
-# Local config / secrets
-*.env
-.env*
-config.local.*

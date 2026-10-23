@@ -1,151 +1,65 @@
 # Lyrics Overlay
 
-macOS 데스크톱 가사 싱크 오버레이 앱.
-로컬 MP3 파일 재생 또는 YouTube Music에서 현재 재생 중인 곡을 감지하고,
-화면 위에 투명 오버레이로 가사를 한 줄씩 실시간 싱크합니다.
+macOS 메뉴바 가사 앱. 지금 재생 중인 곡의 싱크 가사를 메뉴바, 노래방 패널, 전체 가사 창, 노치 아래에 보여준다.
 
----
+![icon](Resources/AppIcon-preview.png)
 
-## 주요 기능
+## 기능
 
-| 기능 | 설명 |
-|------|------|
-| 🎵 MP3 재생 | 로컬 MP3/M4A/FLAC 파일 재생 + 정확한 재생 시간 추적 |
-| 🍏 Music.app / Spotify | 시스템 알림으로 곡 변경·재생·일시정지 즉시 감지 |
-| 🎬 YouTube Music | Chrome/Brave/Edge/Safari에서 현재 재생 곡 자동 감지 |
-| 📄 LRC 파일 | MP3와 같은 폴더의 `.lrc` 파일 자동 로드 |
-| 🌐 LRCLIB API | LRC 파일 없을 시 무료 LRCLIB API로 자동 검색 |
-| 🪟 오버레이 | 항상 최상위, 반투명 배경, 드래그 이동, 2줄 자동 줄바꿈 |
-| 🍎 앱 메뉴 | macOS 왼쪽 상단 메뉴바 (Show Controls / Toggle Overlay / Quit) |
-| ♪ 메뉴바 아이콘 | 클릭 시 메뉴: 지금 재생 중, 메뉴바 가사 모드, 싱크 조정(⌘[ / ⌘]), 가사 다시 검색, 플레이어 선택 |
+| 화면 | 내용 |
+|---|---|
+| 메뉴바 | 현재 가사(길이 조절). 클릭하면 앨범아트·재생 컨트롤·딜레이·플레이어 선택 창 |
+| 노래방 패널 | 현재 줄이 왼쪽→오른쪽으로 채워지는 플로팅 패널. 앨범색 배경, 모든 Space와 전체화면 위에 표시 |
+| 전체 가사 창 | 앨범색 메시 그라데이션 배경, 줄을 클릭하면 그 위치로 이동, 전체화면 지원 |
+| 노치 | 메뉴바 아이콘이 노치에 가려지면 노치 아래로 가사를 표시 (설정: 끔/자동/항상) |
+| 설정 | 일반·노래방·싱크·정보 |
 
----
+지원 플레이어:
 
-## 스크린샷
+| 플레이어 | 읽는 방법 |
+|---|---|
+| Music.app, Spotify | AppleScript + 시스템 알림으로 곡 변경 즉시 감지 |
+| YouTube Music 웹 (Safari/Chrome/Brave/Edge/Arc) | 탭에서 JavaScript 실행 |
+| YT Music.app 등 기타 앱 ("Other Apps") | 시스템 Now Playing (MediaRemote) |
+| 로컬 파일 (⌘O) | 직접 재생, 같은 이름의 `.lrc` 사용 |
 
-```
-┌─────────────────────────────────────────────────────┐
-│         이전 가사 (흐릿하게)                          │
-│                                                     │
-│       ★  현재 가사 (크고 밝게)  ★                   │
-│         긴 가사는 자동으로 줄바꿈됩니다               │
-│                                                     │
-│         다음 가사 (흐릿하게)                          │
-└─────────────────────────────────────────────────────┘
-```
-
-> 실제 스크린샷은 추후 추가 예정입니다.
-
----
+가사는 LRCLIB → NetEase 순으로 찾는다. 곡 길이로 결과를 검증하고, 찾은 가사는 디스크에 캐시한다(`~/Library/Caches/com.nopgae.lyrics-overlay`).
 
 ## 요구 사항
 
-- macOS 12 Monterey 이상
-- Python 3.10 이상
+- macOS 14 이상 (전체 가사 창의 움직이는 배경은 macOS 15 이상)
+- Xcode 16 이상 (Swift 5.9 toolchain)
 
----
-
-## 설치 및 실행
+## 빌드
 
 ```bash
-# 1. 저장소 클론
-git clone https://github.com/nopgae/lyrics-overlay.git
-cd lyrics-overlay
-
-# 2. 의존성 설치
-pip install -r requirements.txt
-
-# 3. 실행 (.app 번들로 — Dock 이름/아이콘 정상 표시)
-open "dist/Lyrics Overlay.app"
-
-# 또는 터미널에서 직접 실행
-python -m lyrics_overlay
+scripts/build.sh               # build/Lyrics Overlay.app (release)
+scripts/run.sh                 # debug 빌드 후 실행 + 로그
+swift test                     # LyricsCore 단위 테스트 (LIVE=1 이면 실제 LRCLIB 호출 포함)
+scripts/snapshot.sh OUT        # 데모 데이터로 각 화면 PNG 캡처 (화면 기록 권한 필요)
+swift scripts/make_icon.swift  # 앱 아이콘 재생성
 ```
 
-### .app 번들 설치 (권장)
+설치: `cp -R "build/Lyrics Overlay.app" /Applications/`
 
-```bash
-cp -r "dist/Lyrics Overlay.app" /Applications/
-```
+서명 없이(ad-hoc) 빌드하면 다시 빌드할 때마다 macOS가 자동화(Apple Events) 권한을 다시 묻는다.
+`SIGN_IDENTITY="..." scripts/build.sh`처럼 고정 인증서를 쓰면 권한이 유지된다.
 
-이후 Spotlight(`⌘ Space`) → `Lyrics Overlay` 로 실행.
+YouTube Music 웹(Chromium 계열)은 브라우저 메뉴 View → Developer → **Allow JavaScript from Apple Events**를 켜야 한다.
+켜지 않아도 "Other Apps"(시스템 Now Playing)로 대부분 잡힌다.
 
-> **참고**: `python -m` 방식으로 실행하면 Dock/메뉴바 이름이 "Python"으로 표시됩니다.
-> Dock 이름을 "Lyrics Overlay"로 표시하려면 `.app` 번들로 실행하세요.
+## 구조
 
----
+- `Sources/LyricsCore`: LRC 파싱, 싱크, 가사 검색/캐시. AppKit이 없어서 단위 테스트 대상
+- `Sources/LyricsOverlay/Players`: 플레이어 연동. AppleScript는 직렬 큐 하나에서만 실행
+- `Sources/NowPlayingHelper`: 시스템 Now Playing을 읽는 라이브러리. macOS 15.4부터 MediaRemote가
+  Apple 서명 프로세스에만 응답하므로 `/usr/bin/perl` 안에서 실행되고 JSON 줄로 결과를 보낸다
+- `Sources/LyricsOverlay/LyricsModel.swift`: 상태, 폴링/알림, 다음 줄까지 대기하는 타이머
+- `Sources/LyricsOverlay/Views`, `*Panel.swift`, `*Window.swift`: 화면
+- `docs/LYRIC_FEVER_NOTES.md`: Lyric Fever 소스 분석 노트
 
-## YouTube Music 연동 설정
+## 이전 버전
 
-### Chrome / Brave / Edge
-**Developer → Allow JavaScript from Apple Events** ✅
+첫 버전은 Python(PyObjC)으로 만들었다. 마지막 Python 버전은 `python-v0.5` 태그에 남아 있다.
 
-### Safari
-1. Safari → **Settings (⌘,)** → **Advanced** → "Show features for web developers" 체크
-2. **Develop → Allow JavaScript from Apple Events** ✅
-
-### macOS 접근성 권한
-**시스템 설정 → 개인 정보 보호 및 보안 → 접근성** → 터미널(또는 Python) 허용
-
----
-
-## 사용법
-
-1. **앱 실행** → Dock에 Lyrics Overlay 아이콘, 메뉴바에 `♪` 아이콘 표시
-2. **컨트롤 패널** → 메뉴바 `♪` 또는 왼쪽 상단 **Lyrics Overlay → Show Controls** (`⌘,`)
-3. **MP3 재생**: `Open MP3…` → 파일 선택 → `Play`
-4. **YouTube Music**: Chrome/Safari에서 재생 시 자동 감지 및 가사 표시
-5. **오버레이 이동**: 오버레이 창 드래그
-6. **투명도 조절**: 컨트롤 패널 슬라이더
-
-### 메뉴바 단축키
-
-| 단축키 | 기능 |
-|--------|------|
-| `⌘,` | Show Controls |
-| `⌘/` | Toggle Overlay |
-| `⌘H` | Hide |
-| `⌘Q` | Quit |
-
-### LRC 파일 사용
-
-MP3 파일과 같은 폴더에 동일한 이름의 `.lrc` 파일을 두면 자동으로 사용됩니다:
-
-```
-📁 music/
-  ├── song.mp3
-  └── song.lrc   ← 자동 로드 (LRCLIB API보다 우선)
-```
-
----
-
-## 프로젝트 구조
-
-```
-lyrics-overlay/
-├── lyrics_overlay/
-│   ├── __init__.py          버전 정보
-│   ├── __main__.py          python -m 진입점
-│   ├── main.py              앱 델리게이트, 타이머, ObjC 액션 메서드
-│   ├── overlay.py           NSPanel 오버레이 (always-on-top, 투명, 드래그)
-│   ├── control_panel.py     컨트롤 패널 UI
-│   ├── player.py            pygame MP3 플레이어
-│   ├── ytmusic_watcher.py   YouTube Music AppleScript 감지 (Chrome/Safari)
-│   ├── lrc_parser.py        LRC 파일 파서
-│   ├── lyrics_fetcher.py    LRCLIB API 클라이언트
-│   └── sync_engine.py       재생 시간 → 가사 싱크
-├── dist/
-│   └── Lyrics Overlay.app   macOS 앱 번들
-├── run.py                   .app 번들 런처
-├── setup.py                 py2app 설정
-├── requirements.txt
-├── pyproject.toml
-├── LICENSE
-└── README.md
-```
-
----
-
-## 라이선스
-
-[MIT License](LICENSE)
+UI 레이아웃은 [Lyric Fever](https://github.com/aviwad/LyricFever) (MIT)를 참고했다.
