@@ -19,6 +19,9 @@ struct MenuBarWindowView: View {
                 ToggleTile(title: "Karaoke", systemImage: "dock.rectangle", isOn: model.showKaraoke) {
                     model.showKaraoke.toggle()
                 }
+                ToggleTile(title: "Lyrics", systemImage: "arrow.up.left.and.arrow.down.right", isOn: false) {
+                    model.showFullLyrics()
+                }
                 ToggleTile(title: "Refresh", systemImage: "arrow.clockwise", isOn: false,
                            isEnabled: model.snapshot != nil && !model.isFetchingLyrics) {
                     model.refetchLyrics()
@@ -143,23 +146,28 @@ private struct LyricPreview: View {
     @Environment(LyricsModel.self) private var model
 
     var body: some View {
-        VStack(spacing: 4) {
-            Text(model.currentLine.flatMap { $0.isEmpty ? nil : $0 } ?? "♪")
-                .font(.system(size: 15, weight: .semibold))
-                .multilineTextAlignment(.center)
-                .lineLimit(2)
-                .contentTransition(.opacity)
-            if let next = model.nextLine, !next.isEmpty {
-                Text(next)
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+        ZStack {
+            // Old line fades out quickly, then the new one fades in, so they never overlap.
+            VStack(spacing: 4) {
+                Text(model.currentLine.flatMap { $0.isEmpty ? nil : $0 } ?? "♪")
+                    .font(.system(size: 15, weight: .semibold))
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                if let next = model.nextLine, !next.isEmpty {
+                    Text(next)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
             }
+            .id(model.currentIndex)
+            .transition(.asymmetric(insertion: .opacity.animation(.easeIn(duration: 0.18).delay(0.1)),
+                                    removal: .opacity.animation(.easeOut(duration: 0.1))))
         }
         .frame(maxWidth: .infinity, minHeight: 58)
         .padding(.horizontal, 10)
         .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(.quaternary.opacity(0.6)))
-        .animation(.easeInOut(duration: 0.25), value: model.currentIndex)
+        .animation(.default, value: model.currentIndex)
         .opacity(model.snapshot == nil ? 0.5 : 1)
     }
 }

@@ -20,12 +20,14 @@ struct LyricsOverlayApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let model = LyricsModel()
     private var karaoke: KaraokePanelController?
+    private(set) lazy var fullLyrics = FullLyricsWindowController(model: model)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Panels can only be created once NSApp is up, so not in App.init.
         karaoke = KaraokePanelController(model: model)
+        model.showFullLyrics = { [weak self] in self?.fullLyrics.show() }
         #if DEBUG
-        DebugSnapshot.runIfRequested(model: model, karaoke: karaoke)
+        DebugSnapshot.runIfRequested(model: model, karaoke: karaoke, fullLyrics: fullLyrics)
         #endif
     }
 }

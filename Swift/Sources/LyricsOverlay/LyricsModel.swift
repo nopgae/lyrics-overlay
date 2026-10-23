@@ -16,14 +16,21 @@ final class LyricsModel {
 
     private(set) var snapshot: PlaybackSnapshot?
     private(set) var artwork: NSImage? {
-        didSet { artworkColor = artwork.flatMap(Self.averageColor) }
+        didSet {
+            artworkColor = artwork.flatMap(Self.averageColor)
+            artworkPalette = artwork.flatMap(Self.gridPalette) ?? []
+        }
     }
     /// Average artwork color, used to tint the karaoke strip.
     private(set) var artworkColor: NSColor?
+    /// 3×3 grid of region colors (row-major, top-left first) for the full-screen mesh background.
+    private(set) var artworkPalette: [NSColor] = []
     private(set) var lyrics: [LyricLine] = []
     private(set) var currentIndex: Int?
     private(set) var lyricsStatus = "—"
     private(set) var isFetchingLyrics = false
+    /// false when the lyrics' timestamps were estimated from plain text
+    private(set) var lyricsAreSynced = true
 
     // MARK: Preferences
 
@@ -61,6 +68,9 @@ final class LyricsModel {
     var karaokeTint: Double {
         didSet { UserDefaults.standard.set(karaokeTint, forKey: "karaokeTint") }
     }
+
+    /// Opens the full lyrics window (set by AppDelegate, which owns the window).
+    @ObservationIgnored var showFullLyrics: () -> Void = {}
 
     // MARK: Derived
 
@@ -216,6 +226,7 @@ final class LyricsModel {
             isFetchingLyrics = false
             if let result {
                 lyrics = result.lines
+                lyricsAreSynced = result.synced
                 lyricsStatus = "\(result.source) · \(result.lines.count) lines" + (result.synced ? "" : " · unsynced")
             } else {
                 lyrics = []
@@ -280,13 +291,35 @@ final class LyricsModel {
                        alpha: 1)
     }
 
+    /// Averages each cell of a 3×3 grid over the image, then darkens/saturates the
+    /// colors so white text stays readable on top.
+    private static func gridPalette(_ image: NSImage) -> [NSColor]? {
+        guard let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil),
+              let ctx = CGContext(data: nil, width: 3, height: 3, bitsPerComponent: 8, bytesPerRow: 12,
+                                  space: CGColorSpaceCreateDeviceRGB(),
+                                  bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return nil }
+        ctx.interpolationQuality = .high
+        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: 3, height: 3))
+        guard let data = ctx.data?.assumingMemoryBound(to: UInt8.self) else { return nil }
+        return (0..<9).map { i in
+            let p = data + i * 4
+            let c = NSColor(red: CGFloat(p[0]) / 255, green: CGFloat(p[1]) / 255, blue: CGFloat(p[2]) / 255, alpha: 1)
+            return NSColor(hue: c.hueComponent,
+                           saturation: min(1, c.saturationComponent * 1.2 + 0.1),
+                           brightness: min(max(c.brightnessComponent * 0.75, 0.18), 0.6),
+                           alpha: 1)
+        }
+    }
+
     #if DEBUG
-    func debugSet(snapshot: PlaybackSnapshot, lyrics: [LyricLine], status: String, artworkColor: NSColor? = nil) {
+    func debugSet(snapshot: PlaybackSnapshot, lyrics: [LyricLine], status: String,
+                  artworkColor: NSColor? = nil, palette: [NSColor] = []) {
         pollLoop?.cancel()
         self.snapshot = snapshot
         self.lyrics = lyrics
         lyricsStatus = status
         self.artworkColor = artworkColor
+        artworkPalette = palette
         restartLineTimer()
     }
     #endif
