@@ -1,6 +1,6 @@
 import Foundation
 
-public struct LyricLine: Equatable, Sendable {
+public struct LyricLine: Codable, Equatable, Sendable {
     public var time: TimeInterval   // seconds from track start
     public var text: String
 

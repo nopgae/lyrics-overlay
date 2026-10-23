@@ -94,7 +94,10 @@ final class LyricsModel {
     // MARK: Private
 
     private let sources: [MusicSource] = [AppleMusicPlayer(), SpotifyPlayer(), YouTubeMusicPlayer()]
-    private let fetcher = LyricsFetcher()
+    private let fetcher = LyricsFetcher(
+        cacheDirectory: FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("com.nopgae.lyrics-overlay/lyrics", isDirectory: true)
+    )
 
     private var isPolling = false
     private var pollAgain = false

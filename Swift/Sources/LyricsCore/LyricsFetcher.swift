@@ -1,9 +1,16 @@
+import CryptoKit
 import Foundation
 
-public struct LyricsResult: Equatable, Sendable {
+public struct LyricsResult: Codable, Equatable, Sendable {
     public var lines: [LyricLine]
     public var source: String   // "LRCLIB" | "NetEase"
     public var synced: Bool     // false → timestamps are estimated from plain text
+
+    public init(lines: [LyricLine], source: String, synced: Bool) {
+        self.lines = lines
+        self.source = source
+        self.synced = synced
+    }
 }
 
 /// A query for one track. `duration` is in seconds (0 if unknown).
@@ -35,8 +42,15 @@ public actor LyricsFetcher {
     private let session: URLSession
     // nil value = every provider answered "not found" (a miss worth remembering)
     private var cache: [String: LyricsResult?] = [:]
+    /// Found lyrics are also kept here across launches (misses are not: the
+    /// databases grow, so a miss is re-checked next launch).
+    private let cacheDirectory: URL?
 
-    public init(session: URLSession? = nil) {
+    public init(session: URLSession? = nil, cacheDirectory: URL? = nil) {
+        self.cacheDirectory = cacheDirectory
+        if let cacheDirectory {
+            try? FileManager.default.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
+        }
         if let session {
             self.session = session
         } else {
@@ -49,10 +63,16 @@ public actor LyricsFetcher {
 
     public func forget(_ q: TrackQuery) {
         cache[q.cacheKey] = nil
+        if let file = diskFile(q) { try? FileManager.default.removeItem(at: file) }
     }
 
     public func search(_ q: TrackQuery) async -> LyricsResult? {
         if let hit = cache[q.cacheKey] { return hit }
+        if let file = diskFile(q), let data = try? Data(contentsOf: file),
+           let saved = try? JSONDecoder().decode(LyricsResult.self, from: data) {
+            cache[q.cacheKey] = saved
+            return saved
+        }
 
         var hadError = false
         var plain: [String]?
@@ -85,7 +105,16 @@ public actor LyricsFetcher {
 
     private func remember(_ q: TrackQuery, _ r: LyricsResult) -> LyricsResult {
         cache[q.cacheKey] = r
+        if let file = diskFile(q), let data = try? JSONEncoder().encode(r) {
+            try? data.write(to: file, options: .atomic)
+        }
         return r
+    }
+
+    private func diskFile(_ q: TrackQuery) -> URL? {
+        guard let cacheDirectory else { return nil }
+        let hash = SHA256.hash(data: Data(q.cacheKey.utf8)).prefix(16).map { String(format: "%02x", $0) }.joined()
+        return cacheDirectory.appendingPathComponent(hash + ".json")
     }
 
     static func estimateTiming(_ plain: [String], duration: TimeInterval) -> [LyricLine] {

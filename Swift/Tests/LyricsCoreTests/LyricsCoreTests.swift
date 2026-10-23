@@ -64,6 +64,31 @@ final class LyricsFetcherTests: XCTestCase {
         XCTAssertGreaterThan(FailingProtocol.calls, 0, "second search should hit the network again")
     }
 
+    /// Found lyrics survive a new fetcher (= app relaunch) without touching the network.
+    func testDiskCacheServesFoundLyricsOffline() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let q = TrackQuery(title: "Song", artist: "Artist", duration: 100)
+
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [CannedLRCLIBProtocol.self]
+        let online = LyricsFetcher(session: URLSession(configuration: config), cacheDirectory: dir)
+        let first = await online.search(q)
+        XCTAssertEqual(first?.lines.first?.text, "Hello")
+
+        let offlineConfig = URLSessionConfiguration.ephemeral
+        offlineConfig.protocolClasses = [FailingProtocol.self]
+        FailingProtocol.calls = 0
+        let relaunched = LyricsFetcher(session: URLSession(configuration: offlineConfig), cacheDirectory: dir)
+        let second = await relaunched.search(q)
+        XCTAssertEqual(second, first)
+        XCTAssertEqual(FailingProtocol.calls, 0)
+
+        await relaunched.forget(q)
+        let afterForget = await relaunched.search(q)
+        XCTAssertNil(afterForget, "forgotten lyrics must not come back from disk")
+    }
+
     /// Live LRCLIB check; skipped unless LIVE=1.
     func testLiveLRCLIB() async throws {
         try XCTSkipUnless(ProcessInfo.processInfo.environment["LIVE"] == "1")
@@ -72,6 +97,21 @@ final class LyricsFetcherTests: XCTestCase {
         XCTAssertEqual(r?.synced, true)
         XCTAssertGreaterThan(r?.lines.count ?? 0, 20)
     }
+}
+
+/// Answers every LRCLIB request with one synced hit.
+final class CannedLRCLIBProtocol: URLProtocol {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        let item = #"{"duration":100,"syncedLyrics":"[00:01.00]Hello\n[00:03.00]World","plainLyrics":"Hello\nWorld"}"#
+        let body = request.url?.path == "/api/search" ? "[\(item)]" : item
+        let resp = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+        client?.urlProtocol(self, didReceive: resp, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data(body.utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
 }
 
 final class FailingProtocol: URLProtocol {
