@@ -5,10 +5,7 @@ struct LyricsOverlayApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     var body: some Scene {
-        let model = appDelegate.model
-        // Read here so the scene re-evaluates (via Observation) when it changes.
-        let inserted = model.isMenuBarItemInserted
-        MenuBarExtra(isInserted: .constant(inserted)) {
+        MenuBarExtra {
             MenuBarWindowView()
                 .environment(appDelegate.model)
         } label: {

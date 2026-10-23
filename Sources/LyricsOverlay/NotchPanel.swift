@@ -181,7 +181,14 @@ final class NotchPanelController {
     /// MenuBarExtra doesn't expose its NSStatusItem; find its window instead. When
     /// macOS has no room for it (e.g. behind the notch) the window is off screen.
     private func checkStatusItem() {
-        let windows = NSApp.windows.filter { $0.className == "NSStatusBarWindow" }
+        // Only ♪ counts, not the divider/toggle items (their autosave names start with
+        // "LyricsOverlay"; MenuBarExtra's is "Item-0").
+        let windows = NSApp.windows.filter { w in
+            guard w.className == "NSStatusBarWindow" else { return false }
+            let item = w.responds(to: NSSelectorFromString("statusItem"))
+                ? w.value(forKey: "statusItem") as? NSStatusItem : nil
+            return !(item?.autosaveName.hasPrefix("LyricsOverlay") ?? false)
+        }
         let hidden = windows.isEmpty || windows.allSatisfy { w in
             w.screen == nil || w.frame.maxX <= 0 || !w.occlusionState.contains(.visible)
         }
