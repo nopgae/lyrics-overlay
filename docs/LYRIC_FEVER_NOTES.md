@@ -1,5 +1,7 @@
 # Lyric Fever 참고 노트
 
+> Python(PyObjC) 버전 시절에 쓴 노트다. 현재 앱은 Swift로 다시 작성됐고, 아래 "적용안" 대부분(분산 알림 등)이 반영됐다.
+
 [aviwad/LyricFever](https://github.com/aviwad/LyricFever) (MIT, Swift/SwiftUI) 소스 분석.
 메뉴바 가사 컨셉은 유지하고, 구조와 아이디어만 Python/PyObjC로 옮겨 적용한다.
 

@@ -1,5 +1,7 @@
 # Lyrics Overlay
 
+> **English summary:** A native macOS menu-bar app (Swift/AppKit/SwiftUI) that shows time-synced lyrics for whatever is playing (Apple Music, Spotify, YouTube Music web/app, local files) in the menu bar, a karaoke panel, a full-lyrics window, or under the notch. Lyrics come from LRCLIB/NetEase with duration-based validation and a disk cache. Core parsing/sync logic is unit-tested (`swift test`). Originally prototyped in Python/PyObjC (tag `python-v0.5`).
+
 macOS 메뉴바 가사 앱. 지금 재생 중인 곡의 싱크 가사를 메뉴바, 노래방 패널, 전체 가사 창, 노치 아래에 보여준다.
 
 ![icon](Resources/AppIcon-preview.png)
@@ -48,6 +50,12 @@ swift scripts/make_icon.swift  # 앱 아이콘 재생성
 
 YouTube Music 웹(Chromium 계열)은 브라우저 메뉴 View → Developer → **Allow JavaScript from Apple Events**를 켜야 한다.
 켜지 않아도 "Other Apps"(시스템 Now Playing)로 대부분 잡힌다.
+
+## 한계
+
+- 기본 빌드는 ad-hoc 서명이고 공증(notarization)을 하지 않아, 다른 Mac에서 DMG로 설치하면 처음 실행 시 Gatekeeper 경고가 뜬다.
+- 시스템 Now Playing은 비공개 프레임워크(MediaRemote)를 `/usr/bin/perl` 경유로 읽는 우회 방식이라 macOS 업데이트로 깨질 수 있다.
+- 가사 싱크 품질은 LRCLIB/NetEase에 올라온 LRC에 의존한다. 가사가 없거나 타이밍이 틀린 곡은 딜레이 조절로만 보정된다.
 
 ## 구조
 
