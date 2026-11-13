@@ -12,7 +12,7 @@ macOS 메뉴바 가사 앱. 지금 재생 중인 곡의 싱크 가사를 메뉴�
 
 YT Music 앱에서 실제로 재생하면서 찍은 화면이다(가사: LRCLIB). 데모 데이터로 찍으려면 `scripts/snapshot.sh`를 쓴다.
 
-**설치:** `scripts/dmg.sh`로 DMG를 만들어 Applications로 끌어다 놓는다(아래 빌드 참고). 공증하지 않은 빌드라 처음 실행할 때 우클릭 → 열기가 필요하다.
+**다운로드:** [Releases](https://github.com/nopgae/lyrics-overlay/releases/latest)에서 DMG를 받아 Applications로 끌어다 놓는다. 공증하지 않은 빌드라 처음 실행할 때 우클릭 → 열기가 필요하다.
 
 ## 기능
 
