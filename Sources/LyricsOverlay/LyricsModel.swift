@@ -30,6 +30,10 @@ final class LyricsModel {
     private(set) var currentIndex: Int?
     /// Which page of a too-long current line the menu bar shows.
     private(set) var menuBarPage = 0
+    /// Temporary limit set while icons are hidden, so ♪'s text can't push the toggle
+    /// behind the notch (see MenuBarDividerController). Not saved.
+    var menuBarLengthCap: Int?
+    private var effectiveMenuBarLength: Int { min(menuBarLength, menuBarLengthCap ?? .max) }
     private(set) var lyricsStatus = "—"
     private(set) var isFetchingLyrics = false
     /// false when the lyrics' timestamps were estimated from plain text
@@ -113,11 +117,11 @@ final class LyricsModel {
         if iconHidingEnabled && !iconsHidden { return nil }
         if let line = currentLine, !line.isEmpty, !snapshot.isPaused {
             // Long lines are shown page by page while they're sung (see restartLineTimer).
-            let pages = LyricPager.pages(line, maxLength: menuBarLength)
+            let pages = LyricPager.pages(line, maxLength: effectiveMenuBarLength)
             return pages[min(menuBarPage, pages.count - 1)]
         }
         let song = snapshot.artist.isEmpty ? snapshot.title : "\(snapshot.title) — \(snapshot.artist)"
-        return song.truncated(to: menuBarLength)
+        return song.truncated(to: effectiveMenuBarLength)
     }
 
     // MARK: Private
@@ -338,7 +342,7 @@ final class LyricsModel {
         let line = lyrics[idx]
         // The last line has no successor; give it until the song ends (or 6 s).
         let end = next ?? max(line.time + 6, snapshot?.duration ?? 0)
-        let pageCount = LyricPager.pages(line.text, maxLength: menuBarLength).count
+        let pageCount = LyricPager.pages(line.text, maxLength: effectiveMenuBarLength).count
         let page = LyricPager.page(at: pos - line.time, duration: end - line.time, count: pageCount)
         if page.index != menuBarPage { menuBarPage = page.index }
         if let pageAt = page.nextPageAt { return line.time + pageAt - pos }

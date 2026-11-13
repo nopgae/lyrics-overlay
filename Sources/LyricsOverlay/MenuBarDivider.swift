@@ -9,6 +9,10 @@ import CoreGraphics
 /// The expander has no image; collapsing it makes it 10,000 pt wide, which pushes
 /// every status item to its left off screen. ♪ always stays.
 ///
+/// While icons are hidden ♪ shows the lyric and grows leftwards; on a notched screen a
+/// long line pushed the toggle behind the notch, leaving no way to show the icons
+/// again. `keepToggleVisible` shortens the menu bar text until the toggle reappears.
+///
 /// Only the toggle decides: ‹ (icons hidden) / › (icons shown). Playback doesn't.
 ///
 /// Nothing is ever removed from the menu bar (isVisible = false / isInserted = false)
@@ -147,6 +151,56 @@ final class MenuBarDividerController: NSObject {
         }
     }
 
+    // MARK: Keeping the toggle reachable
+
+    private var visibilityCheck: DispatchWorkItem?
+
+    /// While icons are hidden, re-check every second: the menu bar re-lays out whenever ♪'s
+    /// text changes width, and the first collapse can be refused before layout settles.
+    private func scheduleVisibilityCheck() {
+        visibilityCheck?.cancel()
+        guard model.iconHidingEnabled, model.iconsHidden else { return }
+        let work = DispatchWorkItem { [weak self] in self?.keepToggleVisible() }
+        visibilityCheck = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1, execute: work)
+    }
+
+    private func keepToggleVisible() {
+        guard let expander, let frame = toggle?.button?.window?.frame else { return }
+        // ♪ itself can also land behind the notch when its text gets wider
+        let lyricsHidden = lyricsItemWindow.map { !Self.isOnScreen($0.frame) } ?? false
+        if !Self.isOnScreen(frame) || lyricsHidden {
+            let cap = max(Self.minMenuBarLength, (model.menuBarLengthCap ?? model.menuBarLength) - 8)
+            if cap != model.menuBarLengthCap {
+                log.info("Toggle or ♪ hidden (notch?); menu bar text capped at \(cap) characters")
+                model.menuBarLengthCap = cap
+            }
+        } else if expander.length != Self.collapsedLength {
+            update()  // collapse was refused earlier, e.g. before ♪ was laid out
+            return
+        }
+        scheduleVisibilityCheck()
+    }
+
+    static let minMenuBarLength = 10
+
+    /// Whether the status item window at `frame` is actually shown. macOS hides items
+    /// that would sit under the notch; CGWindowList reports those as off screen. Matched
+    /// by frame because on macOS 26 Control Center owns every status item window.
+    private static func isOnScreen(_ frame: NSRect) -> Bool {
+        guard let list = CGWindowListCopyWindowInfo([.optionAll], kCGNullWindowID) as? [[String: Any]] else {
+            return true
+        }
+        let level = Int(CGWindowLevelForKey(.statusWindow))
+        return list.contains { w in
+            guard (w[kCGWindowLayer as String] as? Int) == level,
+                  let b = w[kCGWindowBounds as String] as? [String: CGFloat],
+                  let x = b["X"], let width = b["Width"] else { return false }
+            return abs(x - frame.minX) < 1 && abs(width - frame.width) < 1
+                && (w[kCGWindowIsOnscreen as String] as? Bool ?? false)
+        }
+    }
+
     // MARK: State
 
     private func observe() {
@@ -160,15 +214,18 @@ final class MenuBarDividerController: NSObject {
         update()
     }
 
-    /// ♪ can sit left of the expander (first launch, before its position was stored, or
-    /// after a ⌘-drag); collapsing then would hide ♪ too. Checked each time the expander
+    /// ♪ or the toggle can sit left of the expander (first launch, before positions were
+    /// stored, or after a ⌘-drag); collapsing then would hide them too, and without the
+    /// toggle there is no way back. Checked each time the expander
     /// is about to collapse; an already collapsed one is left alone, since its window
     /// frame is mid-layout (it grows rightwards over ♪ before the bar shifts it left).
     private var canCollapse: Bool {
         guard let expander, let expanderWindow = expander.button?.window, let lyrics = lyricsItemWindow else { return false }
         if expander.length == Self.collapsedLength { return true }
-        let ok = lyrics.frame.minX >= expanderWindow.frame.maxX - 1
-        if !ok { log.info("♪ is left of the divider; not hiding icons") }
+        let edge = expanderWindow.frame.maxX - 1
+        let toggleOK = toggle?.button?.window.map { $0.frame.minX >= edge } ?? false
+        let ok = lyrics.frame.minX >= edge && toggleOK
+        if !ok { log.info("♪ or the toggle is left of the divider; not hiding icons") }
         return ok
     }
 
@@ -177,6 +234,8 @@ final class MenuBarDividerController: NSObject {
         let showToggle = model.iconHidingEnabled
         let hidden = model.iconsHidden
         expander.length = showToggle && hidden && canCollapse ? Self.collapsedLength : 0
+        if !(showToggle && hidden) { model.menuBarLengthCap = nil }
+        scheduleVisibilityCheck()
 
         toggle.length = showToggle ? NSStatusItem.variableLength : 0
         toggle.button?.isEnabled = showToggle
