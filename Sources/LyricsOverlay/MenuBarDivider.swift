@@ -6,8 +6,9 @@ import CoreGraphics
 ///
 ///     [icons to hide] [expander] [‹ toggle] [♪] [system icons]
 ///
-/// The expander has no image; collapsing it makes it 10,000 pt wide, which pushes
-/// every status item to its left off screen. ♪ always stays. It follows the toggle
+/// The expander exists only while icons are hidden (even at 0 pt the bar gives an item
+/// a 16 pt gap): it is added at 0 pt just left of the toggle, then grown to 10,000 pt,
+/// which pushes every status item to its left off screen. ♪ always stays. It follows the toggle
 /// (`followToggle`), so ⌘-dragging ‹ is how the user picks which icons hide.
 ///
 /// While icons are hidden ♪ shows the lyric and grows leftwards; on a notched screen a
@@ -16,8 +17,9 @@ import CoreGraphics
 ///
 /// Only the toggle decides: ‹ (icons hidden) / › (icons shown). Playback doesn't.
 ///
-/// Nothing is ever removed from the menu bar (isVisible = false / isInserted = false)
-/// except the expander when re-placing it: macOS forgets a removed item's position.
+/// macOS forgets a removed item's position, so the expander's is written just before
+/// each re-add. Making it invisible and visible again doesn't work: it comes back at
+/// x = 0 with no width instead of in place.
 @MainActor
 final class MenuBarDividerController: NSObject {
     private let model: LyricsModel
@@ -68,8 +70,6 @@ final class MenuBarDividerController: NSObject {
             }
         }
 
-        expander = Self.makeExpander()
-
         let toggle = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         toggle.autosaveName = Self.toggleName
         toggle.button?.target = self
@@ -86,26 +86,43 @@ final class MenuBarDividerController: NSObject {
 
     private var following = false
 
-    /// Keep the expander's stored position just left of the toggle and ♪ (larger = further
-    /// left), re-adding it when either has moved. Removing an item makes macOS drop
-    /// its stored position, so the new one is written between remove and re-add.
-    private func followToggle() {
+    /// Where the expander belongs: just left of the toggle and ♪ (larger = further left),
+    /// so ♪ is never on the hidden side even if the user dragged ‹ past it.
+    private var dividerPosition: Double? {
         let d = UserDefaults.standard
-        guard !following, let expander,
-              let togglePosition = d.object(forKey: Self.positionKey(Self.toggleName)) as? Double else { return }
-        // Left of ♪ too, or collapsing would hide ♪ (the user may have dragged ‹ past it)
+        guard let togglePosition = d.object(forKey: Self.positionKey(Self.toggleName)) as? Double else { return nil }
         let lyricsName: String? = lyricsItemWindow.flatMap { Self.statusItem(of: $0)?.autosaveName }
         let lyricsPosition = lyricsName.flatMap { d.object(forKey: Self.positionKey($0)) as? Double } ?? 0
-        let want = max(togglePosition, lyricsPosition) + 0.5
-        if let current = d.object(forKey: Self.positionKey(Self.expanderName)) as? Double,
-           abs(current - want) < 0.01 { return }
+        return max(togglePosition, lyricsPosition) + 0.5
+    }
+
+    /// Add the expander at 0 pt in place; the next update() grows it once it's laid out
+    /// (added straight at 10,000 pt it doesn't fit and macOS drops it).
+    private func placeExpander() {
+        guard let want = dividerPosition else { return }
         following = true
         defer { following = false }
-        log.info("Toggle moved; divider follows to \(want)")
+        UserDefaults.standard.set(want, forKey: Self.positionKey(Self.expanderName))
+        expander = Self.makeExpander()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in self?.update() }
+    }
+
+    private func removeExpander() {
+        guard let expander else { return }
+        following = true
+        defer { following = false }
         NSStatusBar.system.removeStatusItem(expander)
-        d.set(want, forKey: Self.positionKey(Self.expanderName))
-        self.expander = Self.makeExpander()
-        update()
+        self.expander = nil
+    }
+
+    /// The user ⌘-dragged ‹ or ♪ while icons are hidden: move the expander along.
+    private func followToggle() {
+        guard !following, expander != nil, let want = dividerPosition,
+              let current = UserDefaults.standard.object(forKey: Self.positionKey(Self.expanderName)) as? Double,
+              abs(current - want) >= 0.01 else { return }
+        log.info("Toggle moved; divider follows to \(want)")
+        removeExpander()
+        placeExpander()
     }
 
     @objc private func toggleClicked() {
@@ -146,15 +163,7 @@ final class MenuBarDividerController: NSObject {
     }
 
     private func keepToggleVisible() {
-        guard let expander, let frame = toggle?.button?.window?.frame else { return }
-        // ⌘-dragging the toggle left while collapsed drops it into the hidden part with
-        // everything else; show the icons so it comes back where it was dropped.
-        if expander.length == Self.collapsedLength, let divider = expander.button?.window?.frame,
-           frame.maxX <= divider.minX + 1 {
-            log.info("Toggle moved left of the divider; showing icons")
-            model.iconsHidden = false
-            return
-        }
+        guard let frame = toggle?.button?.window?.frame else { return }
         // ♪ itself can also land behind the notch when its text gets wider
         let lyricsHidden = lyricsItemWindow.map { !Self.isOnScreen($0.frame) } ?? false
         if !Self.isOnScreen(frame) || lyricsHidden {
@@ -163,7 +172,7 @@ final class MenuBarDividerController: NSObject {
                 log.info("Toggle or ♪ hidden (notch?); menu bar text capped at \(cap) characters")
                 model.menuBarLengthCap = cap
             }
-        } else if expander.length != Self.collapsedLength {
+        } else if expander?.length != Self.collapsedLength {
             update()  // collapse was refused earlier, e.g. before ♪ was laid out
             return
         }
@@ -218,15 +227,16 @@ final class MenuBarDividerController: NSObject {
     }
 
     private func update() {
-        guard let expander, let toggle else { return }
+        guard let toggle else { return }
         let showToggle = model.iconHidingEnabled
         let hidden = model.iconsHidden
-        let collapse = showToggle && hidden && canCollapse
-        // Even at length 0 the bar draws a 16 pt gap, so take the divider out while
-        // icons are shown (its stored position stays, so it comes back in place)
-        if collapse { expander.isVisible = true }
-        expander.length = collapse ? Self.collapsedLength : 0
-        if !collapse { expander.isVisible = false }
+        if !(showToggle && hidden) {
+            removeExpander()
+        } else if let expander {
+            if canCollapse { expander.length = Self.collapsedLength }
+        } else {
+            placeExpander()
+        }
         if !(showToggle && hidden) { model.menuBarLengthCap = nil }
         scheduleVisibilityCheck()
 
