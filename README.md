@@ -8,11 +8,11 @@ macOS 메뉴바 가사 앱. 지금 재생 중인 곡의 싱크 가사를 메뉴�
 
 | 메뉴바 창 | 노래방 패널 · 노치 |
 |---|---|
-| ![메뉴바 창](docs/screenshots/demo_dark.png) | ![노래방 패널](docs/screenshots/karaoke.png)<br><br>![노치 아래 가사](docs/screenshots/notch.png)<br><br>![설정](docs/screenshots/settings_0.png) |
+| ![메뉴바 창](docs/screenshots/menubar.png) | ![노래방 패널](docs/screenshots/karaoke.png)<br><br>![노치 아래 가사](docs/screenshots/notch.png)<br><br>![설정](docs/screenshots/settings_0.png) |
 
-스크린샷은 `scripts/snapshot.sh`의 데모 데이터(직접 쓴 가사)로 찍었다.
+YT Music 앱에서 실제로 재생하면서 찍은 화면이다(가사: LRCLIB). 데모 데이터로 찍으려면 `scripts/snapshot.sh`를 쓴다.
 
-**다운로드:** [Releases](https://github.com/nopgae/lyrics-overlay/releases/latest)에서 DMG를 받아 Applications로 끌어다 놓는다. 공증하지 않은 빌드라 처음 실행할 때 우클릭 → 열기가 필요하다.
+**설치:** `scripts/dmg.sh`로 DMG를 만들어 Applications로 끌어다 놓는다(아래 빌드 참고). 공증하지 않은 빌드라 처음 실행할 때 우클릭 → 열기가 필요하다.
 
 ## 기능
 
@@ -48,6 +48,7 @@ scripts/dmg.sh                 # build/Lyrics-Overlay-<버전>.dmg (Applications
 scripts/run.sh                 # debug 빌드 후 실행 + 로그
 swift test                     # LyricsCore 단위 테스트 (LIVE=1 이면 실제 LRCLIB 호출 포함)
 scripts/snapshot.sh OUT        # 데모 데이터로 각 화면 PNG 캡처 (화면 기록 권한 필요)
+                               # 실제 재생 화면: LYRICS_WAIT=6 으로 곡·가사·앨범 아트를 받은 뒤 캡처
 swift scripts/make_icon.swift  # 앱 아이콘 재생성
 ```
 
