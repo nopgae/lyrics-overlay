@@ -87,8 +87,10 @@ final class MenuBarDividerController: NSObject {
     /// Our own items are told apart by their "LyricsOverlay…" autosave names.
     static func lyricsItemWindows() -> [NSWindow] {
         NSApp.windows.filter { w in
-            w.className == "NSStatusBarWindow"
-                && !(statusItem(of: w)?.autosaveName.hasPrefix("LyricsOverlay") ?? false)
+            // autosaveName is implicitly unwrapped and can be nil mid ⌘-drag; reading it
+            // directly crashed the app
+            let name: String? = statusItem(of: w)?.autosaveName
+            return w.className == "NSStatusBarWindow" && !(name?.hasPrefix("LyricsOverlay") ?? false)
         }
     }
 
@@ -167,6 +169,14 @@ final class MenuBarDividerController: NSObject {
 
     private func keepToggleVisible() {
         guard let expander, let frame = toggle?.button?.window?.frame else { return }
+        // ⌘-dragging the toggle left while collapsed drops it into the hidden part with
+        // everything else; show the icons so it comes back where it was dropped.
+        if expander.length == Self.collapsedLength, let divider = expander.button?.window?.frame,
+           frame.maxX <= divider.minX + 1 {
+            log.info("Toggle moved left of the divider; showing icons")
+            model.iconsHidden = false
+            return
+        }
         // ♪ itself can also land behind the notch when its text gets wider
         let lyricsHidden = lyricsItemWindow.map { !Self.isOnScreen($0.frame) } ?? false
         if !Self.isOnScreen(frame) || lyricsHidden {
