@@ -44,7 +44,7 @@ private struct GeneralSettings: View {
             .disabled(!model.showLyricsInMenuBar)
             VStack(alignment: .leading, spacing: 4) {
                 Toggle("Hide other menu bar icons", isOn: $model.iconHidingEnabled)
-                Text("The ‹ › button shows or hides the icons left of the | line. ⌘-drag the line (while icons are shown) to choose which ones hide.")
+                Text("The ‹ › button shows or hides the icons left of it. ⌘-drag it to choose which ones hide.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

@@ -6,9 +6,9 @@ import CoreGraphics
 ///
 ///     [icons to hide] [expander] [‹ toggle] [♪] [system icons]
 ///
-/// While icons are shown the expander is a thin "|" the user can ⌘-drag to choose
-/// which icons hide (everything left of it); collapsing it makes it 10,000 pt wide,
-/// which pushes every status item to its left off screen. ♪ always stays.
+/// The expander has no image; collapsing it makes it 10,000 pt wide, which pushes
+/// every status item to its left off screen. ♪ always stays. It follows the toggle
+/// (`followToggle`), so ⌘-dragging ‹ is how the user picks which icons hide.
 ///
 /// While icons are hidden ♪ shows the lyric and grows leftwards; on a notched screen a
 /// long line pushed the toggle behind the notch, leaving no way to show the icons
@@ -34,7 +34,13 @@ final class MenuBarDividerController: NSObject {
         // Wait for the MenuBarExtra item to be laid out so we can measure it.
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
             self?.createItems()
+            self?.followToggle()
             self?.observe()
+            // macOS stores the new position when the user ⌘-drags an item
+            NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil,
+                                                   queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.followToggle() }
+            }
         }
     }
 
@@ -75,16 +81,32 @@ final class MenuBarDividerController: NSObject {
         let item = NSStatusBar.system.statusItem(withLength: 0)
         item.autosaveName = expanderName
         item.button?.isEnabled = false
-        item.button?.toolTip = "⌘-drag to choose which icons hide (those left of this line)"
         return item
     }
 
-    private static let dividerImage: NSImage? = {
-        let image = NSImage(systemSymbolName: "poweron", accessibilityDescription: "Hidden icons divider")?
-            .withSymbolConfiguration(.init(pointSize: 14, weight: .bold))
-        image?.isTemplate = true
-        return image
-    }()
+    private var following = false
+
+    /// Keep the expander's stored position just left of the toggle and ♪ (larger = further
+    /// left), re-adding it when either has moved. Removing an item makes macOS drop
+    /// its stored position, so the new one is written between remove and re-add.
+    private func followToggle() {
+        let d = UserDefaults.standard
+        guard !following, let expander,
+              let togglePosition = d.object(forKey: Self.positionKey(Self.toggleName)) as? Double else { return }
+        // Left of ♪ too, or collapsing would hide ♪ (the user may have dragged ‹ past it)
+        let lyricsName: String? = lyricsItemWindow.flatMap { Self.statusItem(of: $0)?.autosaveName }
+        let lyricsPosition = lyricsName.flatMap { d.object(forKey: Self.positionKey($0)) as? Double } ?? 0
+        let want = max(togglePosition, lyricsPosition) + 0.5
+        if let current = d.object(forKey: Self.positionKey(Self.expanderName)) as? Double,
+           abs(current - want) < 0.01 { return }
+        following = true
+        defer { following = false }
+        log.info("Toggle moved; divider follows to \(want)")
+        NSStatusBar.system.removeStatusItem(expander)
+        d.set(want, forKey: Self.positionKey(Self.expanderName))
+        self.expander = Self.makeExpander()
+        update()
+    }
 
     @objc private func toggleClicked() {
         model.iconsHidden.toggle()
@@ -199,11 +221,7 @@ final class MenuBarDividerController: NSObject {
         guard let expander, let toggle else { return }
         let showToggle = model.iconHidingEnabled
         let hidden = model.iconsHidden
-        let collapse = showToggle && hidden && canCollapse
-        expander.length = collapse ? Self.collapsedLength : (showToggle ? NSStatusItem.variableLength : 0)
-        // Visible only while not collapsed, so it can be ⌘-dragged; a 10,000 pt wide
-        // item would draw it somewhere in the middle of the bar
-        expander.button?.image = showToggle && !collapse ? Self.dividerImage : nil
+        expander.length = showToggle && hidden && canCollapse ? Self.collapsedLength : 0
         if !(showToggle && hidden) { model.menuBarLengthCap = nil }
         scheduleVisibilityCheck()
 
