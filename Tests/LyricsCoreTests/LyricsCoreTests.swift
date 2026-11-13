@@ -85,6 +85,19 @@ final class LyricsFetcherTests: XCTestCase {
         XCTAssertFalse(LyricsFetcher.durationOK(200, 179))
         XCTAssertTrue(LyricsFetcher.durationOK(181, 179))
         XCTAssertTrue(LyricsFetcher.durationOK(0, 179))
+    }
+
+    func testPrefersOriginalScriptOverRomanizedExactMatch() {
+        let roman = [LyricLine(time: 29, text: "Nuga naege mweoradeun")]
+        let hangul = [LyricLine(time: 29, text: "누가 내게 뭐래던")]
+        let english = [LyricLine(time: 10, text: "Hello")]
+        // Most candidates are Hangul → the romanized exact match loses
+        XCTAssertEqual(LyricsFetcher.pickSynced(exact: roman, candidates: [hangul, roman, hangul])?.first?.text, "누가 내게 뭐래던")
+        // An English song keeps its exact match even if one candidate is a Korean translation
+        XCTAssertEqual(LyricsFetcher.pickSynced(exact: english, candidates: [english, english, hangul])?.first?.text, "Hello")
+        // A Hangul exact match is kept
+        XCTAssertEqual(LyricsFetcher.pickSynced(exact: hangul, candidates: [roman, roman])?.first?.text, "누가 내게 뭐래던")
+        XCTAssertNil(LyricsFetcher.pickSynced(exact: nil, candidates: []))
         XCTAssertTrue(LyricsFetcher.durationOK(200, 0))
     }
 

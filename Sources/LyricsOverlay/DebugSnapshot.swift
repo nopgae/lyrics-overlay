@@ -14,10 +14,12 @@ enum DebugSnapshot {
         let env = ProcessInfo.processInfo.environment
         guard let path = env["LYRICS_SNAPSHOT"] else { return }
         if env["LYRICS_DEMO"] == "1" { model.loadDemo() }
+        // Real playback (no demo) needs a few seconds to detect the track and fetch lyrics and artwork
+        let wait = env["LYRICS_WAIT"].flatMap(Double.init) ?? 0
         if let tab = env["LYRICS_SETTINGS_TAB"].flatMap(Int.init) {
             UserDefaults.standard.set(tab, forKey: "settingsTab")
             settings.show()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + wait + 1) {
                 try? String(settings.window.windowNumber).write(toFile: path, atomically: true, encoding: .utf8)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 3) { exit(0) }
             }
@@ -26,7 +28,7 @@ enum DebugSnapshot {
         if env["LYRICS_TARGET"] == "notch", let panel = notch?.panel {
             let saved = model.notchMode
             model.notchMode = .always
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + wait + 1) {
                 try? String(panel.windowNumber).write(toFile: path, atomically: true, encoding: .utf8)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
                     model.notchMode = saved
@@ -37,20 +39,20 @@ enum DebugSnapshot {
         }
         if env["LYRICS_TARGET"] == "full" {
             fullLyrics.show()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + wait + 1.5) {
                 try? String(fullLyrics.window.windowNumber).write(toFile: path, atomically: true, encoding: .utf8)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 3) { exit(0) }
             }
             return
         }
         if env["LYRICS_TARGET"] == "karaoke", let panel = karaoke?.panel {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + wait + 0.8) {
                 try? String(panel.windowNumber).write(toFile: path, atomically: true, encoding: .utf8)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 3) { exit(0) }
             }
             return
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + wait + 0.5) {
             let host = NSHostingView(rootView: MenuBarWindowView().environment(model))
             let size = host.fittingSize
             let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: size.width, height: size.height),

@@ -122,6 +122,23 @@ public actor LyricsFetcher {
         return plain.enumerated().map { LyricLine(time: (Double($0.offset) + 0.5) * step, text: $0.element) }
     }
 
+    /// The exact match wins, unless it is a romanization: LRCLIB often has both the Hangul/Kana/CJK
+    /// original and a Latin transliteration of the same song, so when most candidates are in the
+    /// original script, use one of those instead of a Latin exact match.
+    static func pickSynced(exact: [LyricLine]?, candidates: [[LyricLine]]) -> [LyricLine]? {
+        let cjk = candidates.filter(isCJK)
+        if exact.map(isCJK) != true, cjk.count * 2 > candidates.count { return cjk[0] }
+        return exact ?? candidates.first
+    }
+
+    static func isCJK(_ lines: [LyricLine]) -> Bool {
+        lines.contains { $0.text.unicodeScalars.contains { s in
+            (0x1100...0x11FF).contains(s.value) || (0x3040...0x30FF).contains(s.value)
+                || (0x3130...0x318F).contains(s.value) || (0x4E00...0x9FFF).contains(s.value)
+                || (0xAC00...0xD7AF).contains(s.value)
+        } }
+    }
+
     static func durationOK(_ candidate: TimeInterval, _ duration: TimeInterval) -> Bool {
         duration <= 0 || candidate <= 0 || abs(candidate - duration) <= durationTolerance
     }
@@ -142,13 +159,14 @@ public actor LyricsFetcher {
         async let search = lrclibSearch(title: title, artist: artist, duration: duration)
         var errors = 0
         var plain: [String]?
+        var exactSynced: [LyricLine]?
         if case .success(let (synced, p)) = await exact {
             plain = p
-            if let synced { return (synced, plain) }
+            exactSynced = synced
         } else { errors += 1 }
-        if case .success(let synced) = await search {
-            if let synced { return (synced, plain) }
-        } else { errors += 1 }
+        var candidates: [[LyricLine]] = []
+        if case .success(let list) = await search { candidates = list } else { errors += 1 }
+        if let best = Self.pickSynced(exact: exactSynced, candidates: candidates) { return (best, plain) }
         if errors == 2 { throw TransientError() }
         return (nil, plain)
     }
@@ -174,21 +192,20 @@ public actor LyricsFetcher {
         }
     }
 
+    /// All synced candidates whose duration matches, in LRCLIB's order.
     private func lrclibSearch(title: String, artist: String, duration: TimeInterval)
-        async -> Result<[LyricLine]?, Error>
+        async -> Result<[[LyricLine]], Error>
     {
         var items = [URLQueryItem(name: "track_name", value: title)]
         if !artist.isEmpty { items.append(URLQueryItem(name: "artist_name", value: artist)) }
         do {
             guard let data = try await get(lrclib("/api/search", items)),
                   let list = try? JSONDecoder().decode([LRCLIBItem].self, from: data) else {
-                return .success(nil)
+                return .success([])
             }
-            for item in list where Self.durationOK(item.duration ?? 0, duration) {
-                let lines = LRCParser.parse(item.syncedLyrics ?? "")
-                if !lines.isEmpty { return .success(lines) }
-            }
-            return .success(nil)
+            return .success(list.filter { Self.durationOK($0.duration ?? 0, duration) }
+                .map { LRCParser.parse($0.syncedLyrics ?? "") }
+                .filter { !$0.isEmpty })
         } catch {
             return .failure(error)
         }
