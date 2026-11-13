@@ -4,7 +4,15 @@
 
 macOS 메뉴바 가사 앱. 지금 재생 중인 곡의 싱크 가사를 메뉴바, 노래방 패널, 전체 가사 창, 노치 아래에 보여준다.
 
-![icon](Resources/AppIcon-preview.png)
+![전체 가사 창](docs/screenshots/full.png)
+
+| 메뉴바 창 | 노래방 패널 · 노치 |
+|---|---|
+| ![메뉴바 창](docs/screenshots/demo_dark.png) | ![노래방 패널](docs/screenshots/karaoke.png)<br><br>![노치 아래 가사](docs/screenshots/notch.png)<br><br>![설정](docs/screenshots/settings_0.png) |
+
+스크린샷은 `scripts/snapshot.sh`의 데모 데이터(직접 쓴 가사)로 찍었다.
+
+**다운로드:** [Releases](https://github.com/nopgae/lyrics-overlay/releases/latest)에서 DMG를 받아 Applications로 끌어다 놓는다. 공증하지 않은 빌드라 처음 실행할 때 우클릭 → 열기가 필요하다.
 
 ## 기능
 
