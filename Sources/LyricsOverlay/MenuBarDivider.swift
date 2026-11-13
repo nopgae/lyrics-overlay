@@ -6,8 +6,9 @@ import CoreGraphics
 ///
 ///     [icons to hide] [expander] [‹ toggle] [♪] [system icons]
 ///
-/// The expander has no image; collapsing it makes it 10,000 pt wide, which pushes
-/// every status item to its left off screen. ♪ always stays.
+/// While icons are shown the expander is a thin "|" the user can ⌘-drag to choose
+/// which icons hide (everything left of it); collapsing it makes it 10,000 pt wide,
+/// which pushes every status item to its left off screen. ♪ always stays.
 ///
 /// While icons are hidden ♪ shows the lyric and grows leftwards; on a notched screen a
 /// long line pushed the toggle behind the notch, leaving no way to show the icons
@@ -22,7 +23,6 @@ final class MenuBarDividerController: NSObject {
     private let model: LyricsModel
     private var expander: NSStatusItem?
     private var toggle: NSStatusItem?
-    private var placementAttempts = 0
 
     static let collapsedLength: CGFloat = 10_000
     private static let expanderName = "LyricsOverlayDivider"
@@ -35,7 +35,6 @@ final class MenuBarDividerController: NSObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
             self?.createItems()
             self?.observe()
-            self?.scheduleAdjacencyCheck()
         }
     }
 
@@ -76,8 +75,16 @@ final class MenuBarDividerController: NSObject {
         let item = NSStatusBar.system.statusItem(withLength: 0)
         item.autosaveName = expanderName
         item.button?.isEnabled = false
+        item.button?.toolTip = "⌘-drag to choose which icons hide (those left of this line)"
         return item
     }
+
+    private static let dividerImage: NSImage? = {
+        let image = NSImage(systemSymbolName: "poweron", accessibilityDescription: "Hidden icons divider")?
+            .withSymbolConfiguration(.init(pointSize: 14, weight: .bold))
+        image?.isTemplate = true
+        return image
+    }()
 
     @objc private func toggleClicked() {
         model.iconsHidden.toggle()
@@ -100,57 +107,6 @@ final class MenuBarDividerController: NSObject {
     private static func statusItem(of window: NSWindow) -> NSStatusItem? {
         guard window.responds(to: NSSelectorFromString("statusItem")) else { return nil }
         return window.value(forKey: "statusItem") as? NSStatusItem
-    }
-
-    // MARK: Keeping the expander right next to ♪
-
-    /// Apps whose status item has no stored position (YT Music.app, for one) can be
-    /// slotted between the expander and ♪, where they'd never hide. If that happens,
-    /// move the expander's stored position halfway towards the toggle's (its right
-    /// neighbour) and re-add it.
-    private func scheduleAdjacencyCheck() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in self?.checkAdjacency() }
-    }
-
-    private func checkAdjacency() {
-        guard placementAttempts < 6, let expander, let expanderWindow = expander.button?.window,
-              let lyrics = lyricsItemWindow, let screen = lyrics.screen,
-              let lyricsName = Self.statusItem(of: lyrics)?.autosaveName else { return }
-        let gapStart = expanderWindow.frame.maxX, gapEnd = lyrics.frame.minX
-        let ours = [toggle?.button?.window?.frame].compactMap { $0 }
-        guard gapEnd - gapStart > 2,
-              Self.otherStatusWindows(in: gapStart...gapEnd, excluding: ours, screen: screen) else { return }
-
-        let d = UserDefaults.standard
-        let lyricsPosition = d.double(forKey: Self.positionKey(lyricsName))
-        let anchor = d.object(forKey: Self.positionKey(Self.toggleName)) as? Double ?? lyricsPosition
-        let current = d.object(forKey: Self.positionKey(Self.expanderName)) as? Double ?? anchor + 1
-        let closer = anchor + (current - anchor) / 2
-        placementAttempts += 1
-        log.info("Icon between divider and ♪; moving divider \(current) → \(closer)")
-        NSStatusBar.system.removeStatusItem(expander)
-        d.set(closer, forKey: Self.positionKey(Self.expanderName))
-        self.expander = Self.makeExpander()
-        update()
-        scheduleAdjacencyCheck()
-    }
-
-    /// Whether another status item window (menu bar level) lies within `range` (AppKit
-    /// x coordinates). On macOS 26 every status item window is owned by Control Center,
-    /// so our own (`excluding`) are told apart by frame. Bounds need no Screen
-    /// Recording permission.
-    private static func otherStatusWindows(in range: ClosedRange<CGFloat>, excluding ours: [NSRect],
-                                           screen: NSScreen) -> Bool {
-        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] else {
-            return false
-        }
-        return list.contains { w in
-            guard (w[kCGWindowLayer as String] as? Int) == Int(CGWindowLevelForKey(.statusWindow)),
-                  let b = w[kCGWindowBounds as String] as? [String: CGFloat],
-                  let x = b["X"], let width = b["Width"], let y = b["Y"], y < 50, width > 4 else { return false }
-            let isOurs = ours.contains { abs($0.minX - x) < 1 && abs($0.width - width) < 1 }
-            return !isOurs && x >= range.lowerBound - 1 && x + width <= range.upperBound + 1
-        }
     }
 
     // MARK: Keeping the toggle reachable
@@ -243,7 +199,11 @@ final class MenuBarDividerController: NSObject {
         guard let expander, let toggle else { return }
         let showToggle = model.iconHidingEnabled
         let hidden = model.iconsHidden
-        expander.length = showToggle && hidden && canCollapse ? Self.collapsedLength : 0
+        let collapse = showToggle && hidden && canCollapse
+        expander.length = collapse ? Self.collapsedLength : (showToggle ? NSStatusItem.variableLength : 0)
+        // Visible only while not collapsed, so it can be ⌘-dragged; a 10,000 pt wide
+        // item would draw it somewhere in the middle of the bar
+        expander.button?.image = showToggle && !collapse ? Self.dividerImage : nil
         if !(showToggle && hidden) { model.menuBarLengthCap = nil }
         scheduleVisibilityCheck()
 
