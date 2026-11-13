@@ -221,7 +221,12 @@ final class MenuBarDividerController: NSObject {
         guard let expander, let toggle else { return }
         let showToggle = model.iconHidingEnabled
         let hidden = model.iconsHidden
-        expander.length = showToggle && hidden && canCollapse ? Self.collapsedLength : 0
+        let collapse = showToggle && hidden && canCollapse
+        // Even at length 0 the bar draws a 16 pt gap, so take the divider out while
+        // icons are shown (its stored position stays, so it comes back in place)
+        if collapse { expander.isVisible = true }
+        expander.length = collapse ? Self.collapsedLength : 0
+        if !collapse { expander.isVisible = false }
         if !(showToggle && hidden) { model.menuBarLengthCap = nil }
         scheduleVisibilityCheck()
 
